@@ -6,5 +6,5 @@ This part is getting heavily redesigned for Ledger Blue commercial release in Ju
 
 To build the firmware, run the makeall script in build/stm32l476 
 
-You can reflash the firmware using JTAG or following the procedure described along with the [official release images](https://github.com/LedgerHQ/ledger-blue/tree/master/nonsecure-firmware-release-dev)
+You can reflash the firmware using JTAG or following the procedure described along with the [official release images](https://github.com/LedgerHQ/blue-nonsecure-firmware-releases/tree/master)
 
