@@ -163,35 +163,41 @@ volatile unsigned char G_io_se_buffer[300];
 
 #ifndef USE_USART_DMA
 void USART1_IRQHandler(void) {
-  
   // mark isr as serviced
   NVIC_ClearPendingIRQ(USART1_IRQn);
 
-  // clear all it flags.
-  G_io_se_usart.Instance->ICR = 0xFFFFFFFF;
-  
-  // store the byte
-  if (
-#ifndef USE_USART_DMA
-      !G_io_se_discard_rx && 
-#endif
-      G_io_se_length < sizeof(G_io_se_buffer)) {
+  // clear rx flags.
+  G_io_se_usart.Instance->ICR = ~USART_ISR_RXNE;
 
-    // DEBUG toggle on data
-//    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, !HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_5));
+  while (G_io_se_usart.Instance->ISR & USART_ISR_RXNE) {
 
-    G_io_se_buffer[G_io_se_offset_write] = G_io_se_usart.Instance->RDR;
-    G_io_se_offset_write = (G_io_se_offset_write+1)%sizeof(G_io_se_buffer);
-    G_io_se_length++;
-  }
-  else {
-    // else ignore the new byte
-    volatile unsigned char c = G_io_se_usart.Instance->RDR;
+    // clear rx flags.
+    G_io_se_usart.Instance->ICR = USART_ISR_RXNE;
+    
+    // store the byte
+    if (
+  #ifndef USE_USART_DMA
+        !G_io_se_discard_rx && 
+  #endif
+        G_io_se_length < sizeof(G_io_se_buffer)) {
+
+      // DEBUG toggle on data
+  //    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, !HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_5));
+
+      G_io_se_buffer[G_io_se_offset_write] = G_io_se_usart.Instance->RDR;
+      G_io_se_offset_write = (G_io_se_offset_write+1)%sizeof(G_io_se_buffer);
+      G_io_se_length++;
+    }
+    else {
+      // else ignore the new byte
+      volatile unsigned char c = G_io_se_usart.Instance->RDR;
+    }
   }
 }
 #endif // USE_USART_DMA
 
 unsigned short io_seproxyhal_rx_available(void) {
+
   #ifdef USE_USART_DMA
   return ((sizeof(G_io_se_buffer)-DMA1_Channel5->CNDTR) + sizeof(G_io_se_buffer) - G_io_se_last_cndtr) % (sizeof(G_io_se_buffer));
   #else
@@ -601,6 +607,8 @@ unsigned char SE_iso_power(unsigned char powered) {
 
 #ifdef USE_USART_DMA
     DMA1_Channel5->CCR = 0;
+    __DMA1_CLK_DISABLE();
+    G_io_se_usart.Instance->CR3 = 0;
 #endif // USE_USART_DMA
 
     // power off the usart, set all gpios to analog input

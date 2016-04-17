@@ -193,6 +193,7 @@ unsigned char SE_iso_power(unsigned char powered);
 void SE_set_link_speed(unsigned int mhz, unsigned int etu);
 unsigned short io_seproxyhal_rx_available(void);
 unsigned short io_seproxyhal_recv(unsigned char* buffer, unsigned short length);
+void io_seproxyhal_send_start(unsigned char * buffer, unsigned short length);
 void io_seproxyhal_send(unsigned char* buffer, unsigned short length);
 unsigned short SE_iso_exchange_apdu(unsigned char* apdu, unsigned short length);
 

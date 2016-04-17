@@ -139,6 +139,11 @@ __weak void screen_xy(unsigned short x, unsigned short y, unsigned short rotatio
 const char ESC_DEVICE_NAME[] = "$DEVICENAME";
 const char DEVICE_NAME_NA[] = "Device Name not available";
 
+#define SEPROXYHAL_EVENT_TIMEOUT_MS 10000
+unsigned int G_seproxyhal_event_timeout_enable;
+unsigned int G_seproxyhal_event_timeout;
+unsigned char G_seproxyhal_event_timeout_header[3];
+
 unsigned int backlight_level;
 unsigned int backlight_is_enabled(void) {
   #ifdef BACKLIGHT_AUTOOFF_MS
@@ -505,6 +510,19 @@ void SysTick_Handler(void)
       }
     }
 
+  }
+
+  if (G_seproxyhal_event_timeout_enable) {
+    G_seproxyhal_event_timeout += SYSTICK_MS;
+    if (G_seproxyhal_event_timeout > SEPROXYHAL_EVENT_TIMEOUT_MS && G_seproxyhal_event_timeout_enable == 1) {
+      G_seproxyhal_event_timeout_enable = 2;
+      screen_printf("Timeout waiting status for event: %.*H...\n", 3, G_seproxyhal_event_timeout_header);
+    }
+    // enable to continue protocol even if error, just notifying
+    if (G_seproxyhal_event_timeout > 2*SEPROXYHAL_EVENT_TIMEOUT_MS) {
+      G_seproxyhal_event_timeout_enable = 0;
+      G_io_seproxyhal_state = WAIT_EVENT;
+    }
   }
 
 
@@ -931,12 +949,11 @@ static unsigned short const cx_ccitt[] = {
 // --------------------------------------------------------------------------
 
 unsigned short cx_crc16_update(unsigned short crc, void const *buf, int len) {
-#define buffer ((unsigned char const *)buf) 
   int i;
   unsigned char b;
 
   for (i = 0; i<len; i++) {
-    b = buffer[i];
+    b = ((unsigned char const *)buf)[i];
     b = b ^ (crc >> 8);
     crc = cx_ccitt[b] ^ (crc << 8);
   }
@@ -1536,7 +1553,6 @@ void display_l4_mode_touch(void) {
   */
 }
 
-
 extern unsigned int g_pfnVectors;
 
 void main(unsigned int button_press_duration)
@@ -1771,11 +1787,13 @@ void main(unsigned int button_press_duration)
   for(;;);
 #endif
 
+  /*
   if (!SE_iso_power(1)) {
     // try to power up the SE, if we cannot, then stay in loader (special patch for nicolas)
     G_io_button.displayed_mode = MODE_MCU_BOOTLOADER;
   }
   SE_iso_power(0);
+  */
 
   __asm("cpsid i");
 
@@ -1816,6 +1834,8 @@ void main(unsigned int button_press_duration)
 #endif // HAVE_BL
 
   __asm("cpsie i");
+
+  G_seproxyhal_event_timeout_enable = 0;
 
 //#define SCREEN_TEST_AT_BOOT
 #ifdef SCREEN_TEST_AT_BOOT
@@ -2042,7 +2062,7 @@ reboot:
   G_io_seproxyhal_buffer[3] = 0;
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
-  io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+  io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
   G_io_seproxyhal_state = WAIT_COMMAND;
 
   volatile unsigned short rx;
@@ -2094,8 +2114,7 @@ reboot:
             case SEPROXYHAL_TAG_USB_CONFIG:
             case SEPROXYHAL_TAG_USB_EP_PREPARE:
             case SEPROXYHAL_TAG_GO_BOOTLOADER:
-              PRINTF("tlv: %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
-              PRINTF("  unexpected tag from SE: 0x%02X\n", G_io_seproxyhal_buffer[0]);
+              screen_printf("unexpected tlv: %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
               break;
 
             // interpret printf within wait event, for easier debug of hardfault on the SE 
@@ -2111,7 +2130,7 @@ reboot:
               G_io_seproxyhal_buffer[1] = 0;
               G_io_seproxyhal_buffer[2] = 0;
 
-              io_seproxyhal_send(G_io_seproxyhal_buffer, 3);
+              io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
               break;
             }
           }
@@ -2146,7 +2165,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = G_io_unsec_chunk.size;
 
             // send in 2 packets
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 3);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
 
             // first packet encode the total length on a U4BE
             if (G_io_unsec_chunk.offset==0) {
@@ -2176,7 +2195,7 @@ reboot:
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 1;
             G_io_seproxyhal_buffer[3] = 1; // conn
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
 
             consumed_events = SEPROXYHAL_EVENT_BLE_CONNECT;
             G_io_seproxyhal_state = WAIT_COMMAND;
@@ -2190,7 +2209,7 @@ reboot:
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 1;
             G_io_seproxyhal_buffer[3] = 0; // disconn
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
 
             consumed_events = SEPROXYHAL_EVENT_BLE_DISCONNECT;
             G_io_seproxyhal_state = WAIT_COMMAND;
@@ -2212,7 +2231,7 @@ reboot:
             G_io_seproxyhal_buffer[5] = G_io_ble.last_write_size;
 
             // send in 2 packets
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 3+3);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3+3);
             io_seproxyhal_send(G_io_ble.last_write_buffer, G_io_ble.last_write_size);
 
             // switch to command state until the SE replies a general status
@@ -2258,7 +2277,7 @@ reboot:
               G_io_seproxyhal_buffer[1] = 0;
               G_io_seproxyhal_buffer[2] = 1;
               G_io_seproxyhal_buffer[3] = (G_io_button.duration_ms >= SEPROXYHAL_LONG_BUTTON_PUSH_MS)?1:0;
-              io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+              io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
               G_io_seproxyhal_state = WAIT_COMMAND;
             }
             consumed_events = SEPROXYHAL_EVENT_BUTTON;
@@ -2304,7 +2323,7 @@ reboot:
             G_io_seproxyhal_buffer[6] = y>>8;
             G_io_seproxyhal_buffer[7] = y;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 8);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 8);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2316,7 +2335,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = 1;
             G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_USB_EVENT_RESET;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2328,7 +2347,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = 1;
             G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_USB_EVENT_SUSPENDED;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2340,7 +2359,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = 1;
             G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_USB_EVENT_RESUMED;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2355,7 +2374,7 @@ reboot:
             G_io_seproxyhal_buffer[4] = SEPROXYHAL_TAG_USB_EP_XFER_SETUP;
             G_io_seproxyhal_buffer[5] = 8;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 6);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 6);
             io_seproxyhal_send(hpcd_USB_OTG_FS.Setup, 8);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
@@ -2374,7 +2393,7 @@ reboot:
                   G_io_seproxyhal_buffer[4] = SEPROXYHAL_TAG_USB_EP_XFER_IN;
                   G_io_seproxyhal_buffer[5] = G_io_usb.ep_in_len[epnum];
 
-                  io_seproxyhal_send(G_io_seproxyhal_buffer, 6);
+                  io_seproxyhal_send_start(G_io_seproxyhal_buffer, 6);
                   G_io_seproxyhal_state = WAIT_COMMAND;
 
                   __asm("cpsid i");
@@ -2404,7 +2423,7 @@ reboot:
                   G_io_seproxyhal_buffer[4] = SEPROXYHAL_TAG_USB_EP_XFER_OUT;
                   G_io_seproxyhal_buffer[5] = len;
 
-                  io_seproxyhal_send(G_io_seproxyhal_buffer, 6);
+                  io_seproxyhal_send_start(G_io_seproxyhal_buffer, 6);
                   // xfer_buff is incremented
                   io_seproxyhal_send(G_io_usb.ep_out_buff[epnum], 
                                      len);
@@ -2432,7 +2451,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = 1;
             G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_USB_EVENT_SOF;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2445,7 +2464,7 @@ reboot:
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 0; 
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 3);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2457,7 +2476,7 @@ reboot:
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 0; 
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 3);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
@@ -2497,10 +2516,13 @@ reboot:
         rx = io_seproxyhal_recv(G_io_seproxyhal_buffer, sizeof(G_io_seproxyhal_buffer));
         l = (G_io_seproxyhal_buffer[1]<<8)|(G_io_seproxyhal_buffer[2]&0xFF);
 
+        // only reset timeout when receiving a command, to give more time before the status
+        G_seproxyhal_event_timeout = 0;
+
         // reset power off, a new command has been received
         backlight_enable(1);
 
-        //PRINTF("%.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
+        //screen_printf("%.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
 
         switch(G_io_seproxyhal_buffer[0]) {
           case SEPROXYHAL_TAG_BLE_RADIO_POWER:
@@ -2531,8 +2553,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = 1;
             // unchanged: G_io_seproxyhal_buffer[3] = G_io_seproxyhal_buffer[3];
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
-
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
             // stay in command mode
             break;
           case SEPROXYHAL_TAG_SCREEN_POWER:
@@ -2571,7 +2592,8 @@ reboot:
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 0;
 
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 3);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
+            // stay in command mode
             break;
           }
           case SEPROXYHAL_TAG_SCREEN_DISPLAY_STATUS: {
@@ -2612,7 +2634,7 @@ reboot:
             G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_DISPLAY_PROCESSED_EVENT;
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 0;
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 3);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
             #endif 
             // stay in command state
             break;
@@ -2624,13 +2646,16 @@ reboot:
             BLE_send(G_io_seproxyhal_ble_last_read_request_handle, &G_io_seproxyhal_buffer[4], G_io_seproxyhal_buffer[0] - 4);
             // this is the last command
             G_io_seproxyhal_state = WAIT_EVENT;
+            G_seproxyhal_event_timeout_enable = 0;
             break;
+
           case SEPROXYHAL_TAG_GENERAL_STATUS:
             //PRINTF("END ");
             if (l == 2) {
               switch((G_io_seproxyhal_buffer[3]<<8)|(G_io_seproxyhal_buffer[4]&0xFF)) {
                 case SEPROXYHAL_TAG_GENERAL_STATUS_LAST_COMMAND:
                   G_io_seproxyhal_state = WAIT_EVENT;
+                  G_seproxyhal_event_timeout_enable = 0;
                   break;
                 case SEPROXYHAL_TAG_GENERAL_STATUS_MORE_COMMAND:
                 default:
@@ -2765,8 +2790,9 @@ reboot:
             else {
               G_io_seproxyhal_buffer[5] = 0; //NACK
             }
-            io_seproxyhal_send(G_io_seproxyhal_buffer, 6);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 6);
             G_io_seproxyhal_state = WAIT_EVENT;
+            G_seproxyhal_event_timeout_enable = 0;
             break;
           }
         }
@@ -2780,6 +2806,14 @@ reboot:
   for(;;);
 }
 
+
+void io_seproxyhal_send_start(unsigned char * buffer, unsigned short length) {
+  // reset command timeout detection
+  G_seproxyhal_event_timeout = 0;
+  G_seproxyhal_event_timeout_enable = 1;
+  memmove(G_seproxyhal_event_timeout_header, buffer, 3);
+  io_seproxyhal_send(buffer, length);
+}
 
 /**
  * @}

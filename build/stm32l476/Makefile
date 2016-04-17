@@ -34,7 +34,7 @@ SHELL =       /bin/bash
 DATE        := $(shell date "+%d %B %G")
 
 #VERSION     := $(shell date "+%Y%m%d")
-VERSION     := 1
+VERSION     := 1.1
 
 $(info Building version: $(VERSION))
 
