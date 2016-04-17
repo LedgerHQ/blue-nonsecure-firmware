@@ -680,7 +680,7 @@ HAL_StatusTypeDef USB_EP0StartXfer(PCD_HandleTypeDef *hpcd, USB_OTG_GlobalTypeDe
       USBx_INEP(ep->num)->DIEPCTL |= (USB_OTG_DIEPCTL_CNAK | USB_OTG_DIEPCTL_EPENA); // OTO do it before writing to the fifo, else it doesn't fit the timing
 
       // copy data in the fifo
-      PCD_WriteEmptyTxFifo(hpcd, ep->num);
+      //PCD_WriteEmptyTxFifo(hpcd, ep->num);
 
       /* Enable the Tx FIFO Empty Interrupt for this EP */
       if (ep->xfer_len > 0)

@@ -104,11 +104,19 @@ volatile struct {
   uint32_t boot_moment;
 } G_io_button;
 
-#define BUTTON_PRESS_DURATION_BOOT_POWER_OFF      10000 // long enough to avoid people being troubled when trying to go bootloader
-#define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER 5000
-#define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY     2000
+#ifdef DEBUG_BUTTON_ALWAYS_PUSHED
+#define BUTTON_PRESS_DURATION_BOOT_POWER_OFF         50 // long enough to avoid people being troubled when trying to go bootloader
+#define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER   20
+#define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY       10
+#define BUTTON_PRESS_DURATION_BOOT_POWER_ON          10
+#define BUTTON_PRESS_DURATION_POWER_OFF            1000
+#else // DEBUG_BUTTON_ALWAYS_PUSHED
+#define BUTTON_PRESS_DURATION_BOOT_POWER_OFF       5000 // long enough to avoid people being troubled when trying to go bootloader
+#define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER 3000
+#define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY     1500
 #define BUTTON_PRESS_DURATION_BOOT_POWER_ON         100
 #define BUTTON_PRESS_DURATION_POWER_OFF            1000
+#endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
 volatile struct touch_state_s G_io_touch;
 volatile struct ble_state_s G_io_ble;
@@ -1488,6 +1496,9 @@ const bagl_element_t screen_mode_l4[] = {
   {{BAGL_RECTANGLE                      , 0x00,   0, 455, 320,  25, 0, 0, BAGL_FILL, 0xF9F9F9, 0xF9F9F9, 0                                                                                 , 0   }, NULL },
 
 
+  // test circle
+  //{{BAGL_RECTANGLE                      , 0x00,  20,  80,  70,  70, 1,30, 0,         0x222222, 0xCCCCCC, 0                                                                                 , 0   }, NULL },
+
   // bootloader screen
 
   // title bar
@@ -1673,10 +1684,10 @@ void main(unsigned int button_press_duration)
   clock_high();
 
   // sort out interrupt priority to avoid complete lockup
-  HAL_NVIC_SetPriority(OTG_FS_IRQn, 4, 0);
-  HAL_NVIC_SetPriority(PendSV_IRQn, 4, 0);
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 3, 0);
-  HAL_NVIC_SetPriority(BNRG_SPI_EXTI_IRQn, 3, 0);
+  HAL_NVIC_SetPriority(OTG_FS_IRQn, 3, 0);
+  HAL_NVIC_SetPriority(PendSV_IRQn, 3, 0);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
+  HAL_NVIC_SetPriority(BNRG_SPI_EXTI_IRQn, 2, 0);
   HAL_NVIC_SetPriority(EXTI3_IRQn, 2, 0);
   HAL_NVIC_SetPriority(EXTI2_IRQn, 2, 0);
   HAL_NVIC_SetPriority(SysTick_IRQn, 1, 0);
@@ -1796,7 +1807,6 @@ void main(unsigned int button_press_duration)
   */
 
   __asm("cpsid i");
-
   // power on for short and medium press
   if (/*BUTTON_PRESS_DURATION_CTRL_BOOTLOADER != 0xFFFFFFFFUL use a nvram struct for these params (with antitearing)
     && */
@@ -1819,7 +1829,6 @@ void main(unsigned int button_press_duration)
 
   __asm("cpsid i");
 
-  G_io_usb.bootloader = 1;
 #else 
   // reset button state in seproxyhal (not bootloader) mode
   G_io_button.boot_moment = 0;
@@ -1874,32 +1883,30 @@ reboot:
 
 
 #ifdef HAVE_BL
-  if (G_io_usb.bootloader) {
-    HAL_Delay(500);
 
+  G_io_usb.bootloader = 1;
+  
+  HAL_Delay(500);
 
-    display_l4_mode("Ledger Blue", "BOOTLOADER MODE");
+  display_l4_mode("Ledger Blue", "BOOTLOADER MODE");
 
-    /* Init Device Library */
-    USBD_Init(&USBD_Device, &HID_Desc, 0);
-    
-    /* Register the HID class */
-    USBD_RegisterClass(&USBD_Device, &USBD_CUSTOM_HID);
+  /* Init Device Library */
+  USBD_Init(&USBD_Device, &HID_Desc, 0);
+  
+  /* Register the HID class */
+  USBD_RegisterClass(&USBD_Device, &USBD_CUSTOM_HID);
 
-    USBD_CUSTOM_HID_RegisterInterface(&USBD_Device, &USBD_CustomHID_template_fops);
-    
-    /* Start Device Process */
-    USBD_Start(&USBD_Device);
+  USBD_CUSTOM_HID_RegisterInterface(&USBD_Device, &USBD_CustomHID_template_fops);
+  
+  /* Start Device Process */
+  USBD_Start(&USBD_Device);
 
-    // run the bootloader main
-    bootloader_apdu_interp();
-  }
-  /*
-  else {
-    bootloader_delegate_boot(1);
-  }
-  */
+  // run the bootloader main
+  bootloader_apdu_interp();
+
 #else
+  G_io_usb.bootloader = 0;
+
   // default is BLE managed asynch by the SE
   G_io_ble_apdu_protocol_enabled = 0;
   BLE_power(0, NULL);
@@ -1920,9 +1927,6 @@ reboot:
 
   // ATR for ST31 Ledger BL/BOLOS
   if (G_io_se_atr_length != 5) {   
-
-
-    #warning THIS MODE MUST BE REMOVED LATER ON, replace with a script on a computer instead
 
     const char recovery_name [] = {AD_TYPE_COMPLETE_LOCAL_NAME,'L','e','d','g','e','r',' ', 'B','l','u','e' /*,' ', 'B','o','o','t','l','o','a','d','e','r'*/, '\0'};
     // request standard ISO apdu transport between the SE and the MCU instead of raw SPI packet (to save overhead)
@@ -2141,6 +2145,9 @@ reboot:
 
         // ready to send the next incoming event (BLE/NFC/TOUCH/WATCHDOG/USB etc)
         if (G_io_seproxyhal_events) {
+
+          // whatever the event, usb transfer can't take place behind the SE to avoid spurious hardware race that alter the SE replied bytes
+          HAL_NVIC_DisableIRQ(OTG_FS_IRQn);
         
           volatile unsigned int consumed_events = 0;
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_SET_LINK_SPEED) {
@@ -2456,6 +2463,20 @@ reboot:
             goto consume;
           }
 
+#ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
+          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_DISPLAYED) {
+            consumed_events = SEPROXYHAL_EVENT_DISPLAYED;
+            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_DISPLAY_PROCESSED_EVENT;
+            G_io_seproxyhal_buffer[1] = 0;
+            G_io_seproxyhal_buffer[2] = 0; 
+
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
+            G_io_seproxyhal_state = WAIT_COMMAND;
+            goto consume;
+          }
+
+#endif // ASYNCH_DISPLAY_PROCESSED_EVENT
+
           // last to avoid overflowing io events with a too short ticker
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_TICKER) {
             //PRINTF("TI. ");
@@ -2469,19 +2490,6 @@ reboot:
             goto consume;
           }
 
-#ifdef IO_EVENT_BEFORE_DISPLAY_PROCESSED_EVENT
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_DISPLAYED) {
-            consumed_events = SEPROXYHAL_EVENT_DISPLAYED;
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_DISPLAY_PROCESSED_EVENT;
-            G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 0; 
-
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
-            G_io_seproxyhal_state = WAIT_COMMAND;
-            goto consume;
-          }
-
-#endif // IO_EVENT_BEFORE_DISPLAY_PROCESSED_EVENT
 
           // no event to be consumed
           break;
@@ -2625,17 +2633,17 @@ reboot:
                 bagl_draw_with_context(&bagl_e.c, &G_io_seproxyhal_buffer[3+sizeof(bagl_component_t)], l-sizeof(bagl_component_t), BAGL_ENCODING_LATIN1);
               }
             }
-            #ifdef IO_EVENT_BEFORE_DISPLAY_PROCESSED_EVENT
+            #ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
             // ensure to 
             G_io_seproxyhal_state |= SEPROXYHAL_EVENT_DISPLAYED;
             G_io_seproxyhal_state = WAIT_EVENT;
-            #else
+            #else // ASYNCH_DISPLAY_PROCESSED_EVENT
             // reply display processed event
             G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_DISPLAY_PROCESSED_EVENT;
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 0;
             io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
-            #endif 
+            #endif // ASYNCH_DISPLAY_PROCESSED_EVENT
             // stay in command state
             break;
           }
@@ -2654,6 +2662,11 @@ reboot:
             if (l == 2) {
               switch((G_io_seproxyhal_buffer[3]<<8)|(G_io_seproxyhal_buffer[4]&0xFF)) {
                 case SEPROXYHAL_TAG_GENERAL_STATUS_LAST_COMMAND:
+
+                  // Reenable OTG fs interrupt to perform requested USB transmit if any.
+                  // this workaround the hardware race between usart and otg.
+                  HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
+
                   G_io_seproxyhal_state = WAIT_EVENT;
                   G_seproxyhal_event_timeout_enable = 0;
                   break;
@@ -2775,8 +2788,9 @@ reboot:
             G_io_seproxyhal_buffer[1] = 0;
             G_io_seproxyhal_buffer[2] = 3;
             // unchanged since recv // G_io_seproxyhal_buffer[3] = mhz;
-            //G_io_seproxyhal_buffer[3] = 10; // force mhz
             // unchanged since recv // G_io_seproxyhal_buffer[4] = etu;
+            //G_io_seproxyhal_buffer[3] = 12; // force mhz
+            //G_io_seproxyhal_buffer[4] = 8; // force etu
             if (l == 2) {
               G_io_seproxyhal_buffer[5] = 1; //ACK
 

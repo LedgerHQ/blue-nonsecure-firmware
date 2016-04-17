@@ -136,6 +136,9 @@ extern volatile unsigned char G_io_ble_apdu_protocol_enabled;
 extern volatile struct touch_state_s {
   short ts_last_x; 
   short ts_last_y;
+  short ts_last_x2; 
+  short ts_last_y2;
+  short ts_last_2;
 } G_io_touch;
 
 extern volatile unsigned char G_io_apdu_buffer[260];

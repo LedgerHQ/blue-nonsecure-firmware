@@ -272,42 +272,115 @@ int bagl_draw_string(unsigned short font_id, unsigned int fgcolor, unsigned int 
 
 // --------------------------------------------------------------------------------------
 
-void bagl_draw_circle_helper(unsigned int color, unsigned short x_center, unsigned short y_center, unsigned short radius, unsigned char octants) {
-  unsigned short x, y;
-  short d;
-  x = 0;
-  y = radius;
-  d = radius - 1;
-  while (x <= y) {
-    if (octants & 1)
-      bagl_hal_draw_rect(color, x_center,   y+y_center, x, 1);
-    if (octants & 2)
-      bagl_hal_draw_rect(color, x_center,   x+y_center, y, 1);
-    if (octants & 4)
-      bagl_hal_draw_rect(color, x_center-x, y+y_center, x, 1);
-    if (octants & 8)
-      bagl_hal_draw_rect(color, x_center-y, x+y_center, y, 1);
-    if (octants & 16)
-      bagl_hal_draw_rect(color, x_center,   y_center-y, x, 1);
-    if (octants & 32)
-      bagl_hal_draw_rect(color, x_center,   y_center-x, y, 1);
-    if (octants & 64)
-      bagl_hal_draw_rect(color, x_center-x, y_center-y, x, 1);
-    if (octants & 128)
-      bagl_hal_draw_rect(color, x_center-y, y_center-x, y, 1);
+// draw round or circle. unaliased.
+// if radiusint is !=0 then draw a circle of color outline, and colorint inside
+void bagl_draw_circle_helper(unsigned int color, unsigned int x_center, unsigned int y_center, unsigned int radius, unsigned char octants, unsigned int radiusint, unsigned int colorint) {
 
-    if (d >= 2*x) {
-      d = d - 2*x - 1;
-      x = x + 1;
+/*
+   128 ***** 32
+      *     *
+  64 *       * 16
+    *         *    
+    *         *
+   4 *       * 1
+      *     *
+     8 ***** 2
+*/
+
+  int x = radius;
+  int y = 0;
+  int last_y = y;
+  int last_x = x;
+  int decisionOver2 = 1 - x;   // Decision criterion divided by 2 evaluated at x=r, y=0
+
+  while( y <= x )
+  {
+    unsigned int drawint = (radiusint > 0 && radiusint < radius /*&& xint <= yint*/);
+
+
+    if (octants & 1) { // 
+      bagl_hal_draw_rect(color, x_center,   y+y_center, x, 1);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center,   y+y_center, x-1, 1);
+      }
     }
-    else if (d < 2*(radius - y)) {
-      d = d + 2*y - 1;
-      y = y - 1;
+    if (octants & 2) { // 
+      bagl_hal_draw_rect(color, x_center,   x+y_center, y, 1);
+      /*if (drawint && x < radius) {
+        bagl_hal_draw_rect(colorint, x_center,   x+y_center, y-1, 1);
+      }*/
     }
-    else {
-      d = d + 2*(y-x-1);
-      y = y - 1;
-      x = x + 1;
+    if (octants & 4) { // 
+      bagl_hal_draw_rect(color, x_center-x, y+y_center, x, 1);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center-x+1, y+y_center, x-1, 1);
+      }
+    }
+    if (octants & 8) { // 
+      bagl_hal_draw_rect(color, x_center-y, x+y_center, y, 1);
+      /*if (drawint && x < radius) {
+        bagl_hal_draw_rect(colorint, x_center-y+1, x+y_center, y-1, 1);
+      }*/
+    }
+    if (octants & 16) { //
+      bagl_hal_draw_rect(color, x_center,   y_center-y, x, 1);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center,   y_center-y, x-1, 1);
+      }
+    }
+    if (octants & 32) { // 
+      bagl_hal_draw_rect(color, x_center,   y_center-x, y, 1);
+      /*if (drawint && x < radius) {
+        bagl_hal_draw_rect(colorint, x_center,   y_center-x, y-1, 1);
+      }*/
+    }
+    if (octants & 64) { // 
+      bagl_hal_draw_rect(color, x_center-x, y_center-y, x, 1);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center-x+1, y_center-y, x-1, 1);
+      }
+    }
+    if (octants & 128) { //
+      bagl_hal_draw_rect(color, x_center-y, y_center-x, y, 1);
+      /*if (drawint && x < radius) {
+        bagl_hal_draw_rect(colorint, x_center-y+1, y_center-x, y-1, 1);
+      }*/
+    }
+
+    last_y = y;
+    last_x = x;
+
+    y++;
+    if (decisionOver2<=0)
+    {
+      decisionOver2 += 2 * y + 1;   // Change in decision criterion for y -> y+1
+    }
+    else
+    {
+      x--;
+      decisionOver2 += 2 * (y - x) + 1;   // Change for y -> y+1, x -> x-1
+    }
+
+    if (octants & 2) { // 
+      if (drawint && last_x < radius && x != last_x) {
+        bagl_hal_draw_rect(colorint, x_center,   last_x+y_center, last_y-(y-last_y), 1);
+      }
+    }
+    if (octants & 8) { // 
+      if (drawint && last_x < radius && x != last_x) {
+        bagl_hal_draw_rect(colorint, x_center-last_y+1, last_x+y_center, last_y-(y-last_y), 1);
+      }
+    }
+    if (octants & 32) { // 
+      if (drawint && last_x < radius && x != last_x) {
+        bagl_hal_draw_rect(colorint, x_center,   y_center-last_x, last_y-(y-last_y), 1);
+      }
+    }
+
+    if (octants & 128) { //
+      if (drawint && last_x < radius && x != last_x) {
+        bagl_hal_draw_rect(colorint, x_center-last_y+1, y_center-last_x, last_y-(y-last_y), 1);
+      }
     }
   }
 }
@@ -409,6 +482,7 @@ idx_ok:
       
       if (component->fill != BAGL_FILL) {
 
+        // inner
         // centered top to bottom
         bagl_hal_draw_rect(component->bgcolor, 
                            component->x+component->radius,                  
@@ -421,7 +495,6 @@ idx_ok:
                            component->y+component->radius, 
                            component->radius, 
                            component->height-2*component->radius); 
-
         // center rect to right
         bagl_hal_draw_rect(component->bgcolor, 
                            component->x+component->width-component->radius, 
@@ -429,6 +502,7 @@ idx_ok:
                            component->radius, 
                            component->height-2*component->radius);
 
+        // outline
         // 4 rectangles (with last pixel of each corner not set)
         bagl_hal_draw_rect(component->fgcolor, 
                            component->x+component->radius,                  
@@ -475,17 +549,15 @@ idx_ok:
 
       // draw corners
       if (component->radius > 1) {
-        bagl_draw_circle_helper(component->fgcolor, component->x+component->radius, component->y+component->radius, component->radius, BAGL_FILL_CIRCLE_PI2_PI);
-        bagl_draw_circle_helper(component->fgcolor, component->x+component->width-component->radius, component->y+component->radius, component->radius, BAGL_FILL_CIRCLE_0_PI2);
-        bagl_draw_circle_helper(component->fgcolor, component->x+component->radius, component->y+component->height-component->radius-1, component->radius, BAGL_FILL_CIRCLE_PI_3PI2);
-        bagl_draw_circle_helper(component->fgcolor, component->x+component->width-component->radius, component->y+component->height-component->radius-1, component->radius, BAGL_FILL_CIRCLE_3PI2_2PI);
+        unsigned radiusint = 0;
         // carve round when not filling
         if (component->fill != BAGL_FILL) {
-          bagl_draw_circle_helper(component->bgcolor, component->x+component->radius, component->y+component->radius, component->radius-component->stroke, BAGL_FILL_CIRCLE_PI2_PI);
-          bagl_draw_circle_helper(component->bgcolor, component->x+component->width-component->radius, component->y+component->radius, component->radius-component->stroke, BAGL_FILL_CIRCLE_0_PI2);
-          bagl_draw_circle_helper(component->bgcolor, component->x+component->radius, component->y+component->height-component->radius-1, component->radius-component->stroke, BAGL_FILL_CIRCLE_PI_3PI2);
-          bagl_draw_circle_helper(component->bgcolor, component->x+component->width-component->radius, component->y+component->height-component->radius-1, component->radius-component->stroke, BAGL_FILL_CIRCLE_3PI2_2PI);
+          radiusint = component->radius-component->stroke;
         }
+        bagl_draw_circle_helper(component->fgcolor, component->x+component->radius, component->y+component->radius, component->radius, BAGL_FILL_CIRCLE_PI2_PI, radiusint, component->bgcolor);
+        bagl_draw_circle_helper(component->fgcolor, component->x+component->width-component->radius, component->y+component->radius, component->radius, BAGL_FILL_CIRCLE_0_PI2, radiusint, component->bgcolor);
+        bagl_draw_circle_helper(component->fgcolor, component->x+component->radius, component->y+component->height-component->radius-1, component->radius, BAGL_FILL_CIRCLE_PI_3PI2, radiusint, component->bgcolor);
+        bagl_draw_circle_helper(component->fgcolor, component->x+component->width-component->radius, component->y+component->height-component->radius-1, component->radius, BAGL_FILL_CIRCLE_3PI2_2PI, radiusint, component->bgcolor);
       }
 
       
@@ -618,17 +690,14 @@ idx_ok:
     
     case BAGL_CIRCLE:
       // draw the circle (all 8 octants)
-      bagl_draw_circle_helper(component->fgcolor, component->x, component->y, component->radius, 0xFF);
-      if(component->fill != BAGL_FILL && component->stroke) {
-        // hole in the circle (all 8 octants)
-        bagl_draw_circle_helper(component->bgcolor, component->x, component->y, component->radius-component->stroke, 0xFF);
-      }
+      bagl_draw_circle_helper(component->fgcolor, component->x+component->radius, component->y+component->radius, component->radius, 0xFF, ((component->fill != BAGL_FILL)?component->radius-component->stroke:0), component->bgcolor);
       break;
 
-    case BAGL_NONE:
+    //case BAGL_NONE:
       // performing, but not registering
-      bagl_hal_draw_rect(component->fgcolor, component->x, component->y, component->width, component->height);
-      return;
+      //bagl_hal_draw_rect(component->fgcolor, component->x, component->y, component->width, component->height);
+      //return;
+    case BAGL_NONE:
     default:
       return;
   }

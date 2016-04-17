@@ -546,14 +546,10 @@ unsigned char SE_iso_power(unsigned char powered) {
     
     // depending on the clock source (usb enabled or not) the gtpr prescaler must be set to avoid overclocking
     // OK MSI // G_io_se_usart.Instance->GTPR = 1; // divide clock by 2 with no guard time value // 5 -> ck = 3.2mhz
-    //G_io_se_usart.Instance->GTPR = 3; // /6  2.6mhz
+    //G_io_se_usart.Instance->GTPR = 3; // /6 
     //G_io_se_usart.Instance->GTPR = 2; // /4  4mhz
     //G_io_se_usart.Instance->GTPR = 1; // /2  8mhz // OK 
-#ifdef HAVE_BL
-    G_io_se_usart.Instance->GTPR = 3; // /6  10mhz // OK ETU16
-#else
-    G_io_se_usart.Instance->GTPR = 3;
-#endif // HAVE_BL
+    G_io_se_usart.Instance->GTPR = 2; // SYSCLK/4  // OK ETU8
     //G_io_se_usart.Instance->GTPR = 2; // /4  15mhz // OK ETU8 (even if out of spec)
     //G_io_se_usart.Instance->GTPR = 1; // /2  20mhz // FEIL ETU32
 
@@ -594,12 +590,8 @@ unsigned char SE_iso_power(unsigned char powered) {
     
     // grab ATR (force pps even if not needed)
     //return SE_iso_power_up(0x95); // ETU32
-#ifdef HAVE_BL
-    return SE_iso_power_up(0x96); // ETU16 // OK tested
-#else // HAVE_BL
     //return SE_iso_power_up(0x96); // ETU16 // OK tested
     return SE_iso_power_up(0x97); // ETU8 // some feil with invalid byte read from the SE
-#endif // HAVE_BL
     //return SE_iso_power_up(0xC6); // ETU16
     //return SE_iso_power_up(0xC8); // ETU12
   }

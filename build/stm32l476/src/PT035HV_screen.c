@@ -1,3 +1,19 @@
+/*******************************************************************************
+*   Ledger Blue - Non secure firmware
+*   (c) 2016 Ledger
+*
+*  Licensed under the Apache License, Version 2.0 (the "License");
+*  you may not use this file except in compliance with the License.
+*  You may obtain a copy of the License at
+*
+*      http://www.apache.org/licenses/LICENSE-2.0
+*
+*   Unless required by applicable law or agreed to in writing, software
+*   distributed under the License is distributed on an "AS IS" BASIS,
+*   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*   See the License for the specific language governing permissions and
+*   limitations under the License.
+********************************************************************************/
 
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
@@ -48,6 +64,56 @@ unsigned char screen_charbuffer[PRINTF_LINE_CHAR_LENGTH*PRINTF_LINE_COUNT];
 #define TS_CE(x) BB_OUT(GPIOC, 10, x)
 
 
+
+
+void spi2_change_clock(unsigned int mhz) {
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+  
+  memset(&hspi, 0, sizeof(hspi));
+  memset(&RCC_OscInitStruct, 0, sizeof(RCC_OscInitStruct));
+  
+  DISP_NCS(1);
+  
+  /*
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 1; // 1 to 8
+  RCC_OscInitStruct.PLL.PLLN = mhz; // 8 to 86 // equals MBit of SPI1 for screen
+  //RCC_OscInitStruct.PLL.PLLN = 32; // 8 to 86 // equals MBit of SPI1 for screen
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7; // SAI1/SAI2
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2; // 48M1CLK
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4; // SYSCLK
+  HAL_RCC_OscConfig(&RCC_OscInitStruct);
+  */
+
+  SPI2->CR1 &= ~SPI_CR1_SPE;  
+  hspi.Instance = SPI2;
+  hspi.Init.Mode = SPI_MODE_MASTER;
+  hspi.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi.Init.DataSize = SPI_DATASIZE_9BIT;
+  hspi.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi.Init.NSS = SPI_NSS_SOFT;
+  // OK // hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+  hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+/*
+#ifdef LOW_SPEED_SCREEN
+  hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+#endif // LOW_SPEED_SCREEN
+*/
+  hspi.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi.Init.TIMode = SPI_TIMODE_DISABLED;
+  hspi.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLED;
+  hspi.Init.CRCPolynomial = 10;
+  hspi.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi.Init.NSSPMode = SPI_NSS_PULSE_ENABLED;
+  HAL_SPI_Init(&hspi);
+  /* Enable SPI peripheral */
+  SPI2->CR1 |=  SPI_CR1_SPE;  
+}
+
 #define MSG2133_I2C_ADDR 0x4C
 I2C_HandleTypeDef hi2c;
 
@@ -69,6 +135,7 @@ unsigned char lcd_data(unsigned int flags, unsigned char d) {
   }
 
   SPI2->DR = tmp; // write data to be transmitted to the SPI data register
+  
   while( !(SPI2->SR & SPI_SR_TXE) ); // wait until transmit complete
 
   return 0;
@@ -140,7 +207,6 @@ void screen_poweroff(void)
   *
   *
   */
-unsigned int finger_index;
 void EXTI15_10_IRQHandler(void) {
   // then it's the touch screen that interrupted
   // read the touch screen position data
@@ -182,35 +248,34 @@ void EXTI15_10_IRQHandler(void) {
         //y2 = y2 * 5 / 32;//320/2048;
         //#endif // YL035_2_FINGERS
 
-        // alternatively switch between fingers when a second coordinate is present
-        if (finger_index && (x2 || y2)) {
+        G_io_touch.ts_last_2 = 0;
+        if (x2 || y2) {
           x2 += x1;
           y2 += y1;
-          finger_index = 0;
-          x1 = x2;
-          y1 = y2;
-        }
-        else {
-          finger_index = 1;
-        }
 
+          x2 = x2 *15 / 64;//480/2048;
+          y2 = y2 * 5 / 32;//320/2048;
+
+          // a second finger is available
+          G_io_touch.ts_last_2 = 1;
+        }
 
         // adjust the second finger with the offset of the first
         x1 = x1 *15 / 64;//480/2048;
         y1 = y1 * 5 / 32;//320/2048;
         
-        /*
-        HAL_UART_Transmit(&huart1, (uint8_t*)&x1, 2, 1024);
-        HAL_UART_Transmit(&huart1, (uint8_t*)&y1, 2, 1024);
-        */
         // reverse the y coord
 #ifdef HAVE_PT035HV_ROTATION_0
         G_io_touch.ts_last_x = SCREEN_WIDTH-y1;
         G_io_touch.ts_last_y = x1;
+        G_io_touch.ts_last_x2 = SCREEN_WIDTH-y2;
+        G_io_touch.ts_last_y2 = x2;
 #endif // HAVE_PT035HV_ROTATION_0
 #ifdef HAVE_PT035HV_ROTATION_180
         G_io_touch.ts_last_x = y1;
         G_io_touch.ts_last_y = SCREEN_HEIGHT-x1;
+        G_io_touch.ts_last_x2 = y2;
+        G_io_touch.ts_last_y2 = SCREEN_HEIGHT-x2;
 #endif // HAVE_PT035HV_ROTATION_180
 
         __asm("cpsid i");
@@ -228,6 +293,14 @@ void screen_update_touch_event(void) {
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
     EXTI15_10_IRQHandler();
   }
+
+  if ((G_io_seproxyhal_events & (SEPROXYHAL_EVENT_TOUCH|SEPROXYHAL_EVENT_RELEASE)) == 0 
+    && G_io_touch.ts_last_2) {
+    G_io_touch.ts_last_2 = 0;
+    G_io_touch.ts_last_x = G_io_touch.ts_last_x2;
+    G_io_touch.ts_last_y = G_io_touch.ts_last_y2;
+    G_io_seproxyhal_events |= SEPROXYHAL_EVENT_TOUCH;
+  }
 }
 
 unsigned int current_x;
@@ -242,6 +315,52 @@ void screen_init(unsigned char reinit)
   current_x = 0;
   newline_requested = 0;
   memset(((char*)screen_charbuffer),' ',sizeof(screen_charbuffer));
+
+  /* PC10 TS_CE */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* PC11 TS_IRQ */
+  GPIO_InitStruct.Pin = GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /**I2C1 GPIO Configuration    
+  PB8     ------> I2C1_SCL
+  PB9     ------> I2C1_SDA 
+  */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* Peripheral clock enable */
+  __I2C1_CLK_ENABLE();
+
+  memset(&hi2c, 0, sizeof(hi2c));
+
+  hi2c.Instance = I2C1;
+  hi2c.Init.Timing = 0x10909CEC; // 100khz @ 80mhz
+  hi2c.Init.Timing = 0x00702991; // 400khz @ 80mhz
+  hi2c.Init.OwnAddress1 = 0;
+  hi2c.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c.Init.DualAddressMode = I2C_DUALADDRESS_DISABLED;
+  hi2c.Init.OwnAddress2 = 0;
+  hi2c.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c.Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
+  hi2c.Init.NoStretchMode = I2C_NOSTRETCH_DISABLED;
+  HAL_I2C_Init(&hi2c);
+  HAL_I2CEx_AnalogFilter_Config(&hi2c, I2C_ANALOGFILTER_ENABLED);
+
+  // reset Touch screen
+  TS_CE(0);
 
   if (!reinit) {
     // reset the display and clear it
@@ -280,32 +399,37 @@ void screen_init(unsigned char reinit)
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
     DISP_NRST(0);
 
-    hspi.Instance = SPI2;
-    hspi.Init.Mode = SPI_MODE_MASTER;
-    hspi.Init.Direction = SPI_DIRECTION_2LINES;
-    hspi.Init.DataSize = SPI_DATASIZE_9BIT;
-    hspi.Init.CLKPolarity = SPI_POLARITY_LOW;
-    hspi.Init.CLKPhase = SPI_PHASE_1EDGE;
-    hspi.Init.NSS = SPI_NSS_SOFT;
-    // OK // hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
-    hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+    //spi2_change_clock(16);
+	
+  SPI2->CR1 &= ~SPI_CR1_SPE;  
+  hspi.Instance = SPI2;
+  hspi.Init.Mode = SPI_MODE_MASTER;
+  hspi.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi.Init.DataSize = SPI_DATASIZE_9BIT;
+  hspi.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi.Init.NSS = SPI_NSS_SOFT;
+  // OK // hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+  hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+
 #ifdef LOW_SPEED_SCREEN
-    hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
 #endif // LOW_SPEED_SCREEN
-    hspi.Init.FirstBit = SPI_FIRSTBIT_MSB;
-    hspi.Init.TIMode = SPI_TIMODE_DISABLED;
-    hspi.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLED;
-    hspi.Init.CRCPolynomial = 10;
-    hspi.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-    hspi.Init.NSSPMode = SPI_NSS_PULSE_ENABLED;
-    HAL_SPI_Init(&hspi);
-    /* Enable SPI peripheral */
-    SPI2->CR1 |=  SPI_CR1_SPE;  
+
+  hspi.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi.Init.TIMode = SPI_TIMODE_DISABLED;
+  hspi.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLED;
+  hspi.Init.CRCPolynomial = 10;
+  hspi.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi.Init.NSSPMode = SPI_NSS_PULSE_ENABLED;
+  HAL_SPI_Init(&hspi);
+  /* Enable SPI peripheral */
+  SPI2->CR1 |=  SPI_CR1_SPE; 
 
     // reset the screen
     DISP_NRST(1);  
     /* Enable the interrupt service thread/routine for INT after 50ms */
-    HAL_Delay(50);
+    HAL_Delay(60);
 
 
     // first, force a hardware reset
@@ -319,13 +443,13 @@ void screen_init(unsigned char reinit)
 
     DISP_NCS(0);
     lcd_data(FLAG_COMMAND|FLAG_FLUSH, HX8357_EXIT_SLEEP_MODE); //Sleep Out
-    HAL_Delay(150);
+    HAL_Delay(200);
 
     lcd_data(FLAG_COMMAND, HX8357_ENABLE_EXTENSION_COMMAND);
     lcd_data(FLAG_PARAM, 0xFF);
     lcd_data(FLAG_PARAM, 0x83);
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x57);
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, HX8357_SET_POWER_CONTROL);
     lcd_data(FLAG_PARAM, 0x00);
     lcd_data(FLAG_PARAM, 0x12);
@@ -333,7 +457,7 @@ void screen_init(unsigned char reinit)
     lcd_data(FLAG_PARAM, 0x12);
     lcd_data(FLAG_PARAM, 0xC3);
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x44);
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, HX8357_SET_DISPLAY_MODE);
     lcd_data(FLAG_PARAM, 0x02);
     lcd_data(FLAG_PARAM, 0x40);
@@ -342,10 +466,10 @@ void screen_init(unsigned char reinit)
     lcd_data(FLAG_PARAM, 0x2A);
     lcd_data(FLAG_PARAM, 0x20);
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x91);
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, HX8357_SET_VCOM_VOLTAGE);
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x38);
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, HX8357_SET_INTERNAL_OSCILLATOR);
     lcd_data(FLAG_PARAM, 0x68);
     lcd_data(FLAG_COMMAND, 0xE3); //Unknown Command
@@ -362,12 +486,12 @@ void screen_init(unsigned char reinit)
     lcd_data(FLAG_PARAM, 0x3C);
     lcd_data(FLAG_PARAM, 0xC8);
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x08);
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, 0xC2); // Set Gate EQ
     lcd_data(FLAG_PARAM, 0x00);
     lcd_data(FLAG_PARAM, 0x08);
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x04);
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, HX8357_SET_PANEL_CHARACTERISTIC);
   #ifdef HAVE_PT035HV_ROTATION_0  
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x09); // proto screen direction
@@ -375,7 +499,7 @@ void screen_init(unsigned char reinit)
   #ifdef HAVE_PT035HV_ROTATION_180
     lcd_data(FLAG_PARAM|FLAG_FLUSH, 0x05); // final screen direction (usb reversed)
   #endif 
-    HAL_Delay(1);
+    HAL_Delay(10);
     lcd_data(FLAG_COMMAND, HX8357_SET_GAMMA_CURVE);
     lcd_data(FLAG_PARAM, 0x01);
     lcd_data(FLAG_PARAM, 0x02);
@@ -411,7 +535,7 @@ void screen_init(unsigned char reinit)
     lcd_data(FLAG_PARAM, 0x21);
     lcd_data(FLAG_PARAM, 0x00);
     lcd_data(FLAG_PARAM, 0x01);
-    HAL_Delay(1);
+    HAL_Delay(10);
     
     lcd_data(FLAG_COMMAND, HX8357_SET_PIXEL_FORMAT); //COLMOD RGB565
     lcd_data(FLAG_PARAM, 0x55);
@@ -429,7 +553,10 @@ void screen_init(unsigned char reinit)
     //lcd_data(FLAG_PARAM, 0xCC); // 90Hz
     lcd_data(FLAG_PARAM, 0x01); // OSC_EN
 
-    lcd_data(FLAG_COMMAND, HX8357_ALLON);
+    // until screen_on is called
+    lcd_data(FLAG_COMMAND, HX8357_ALLOFF);
+    //
+
     lcd_data(FLAG_COMMAND|FLAG_FLUSH, HX8357_SET_DISPLAY_ON); //Display On
     HAL_Delay(10);
 
@@ -441,56 +568,43 @@ void screen_init(unsigned char reinit)
       HAL_Delay(1000);
     }
     */
+    
+    /*
+
+
+    // to be remove after debug when SDO is connected
+    lcd_data(FLAG_COMMAND|FLAG_FLUSH, HX8357_NORON);
+    screen_brightness(70);
+
+
+    //bagl_draw_bg(0xF9F9F9);
+
+    unsigned int spi_clock = 34;
+    do {
+      spi_clock-=2;
+      spi2_change_clock(spi_clock);
+
+      // paint all
+      bagl_draw_bg(0xAAAAAA);
+
+      // reread data to ensure everything is fine, else lower speed and redo it
+      if (screen_ensure_data(0xAAAAAA, 0, 0, 320, 480)) {
+        break;
+      }
+    }
+    while(spi_clock > 16);
+    */
 
     bagl_draw_bg(0xF9F9F9);
-    // until screen_on is called
-    lcd_data(FLAG_COMMAND|FLAG_FLUSH, HX8357_ALLOFF);
+
+    //spi2_change_clock(28);
+
+  }
+  else {
+    HAL_Delay(200);
   }
 
-  /* PC10 TS_CE */
-  GPIO_InitStruct.Pin = GPIO_PIN_10;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /* PC11 TS_IRQ */
-  GPIO_InitStruct.Pin = GPIO_PIN_11;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /**I2C1 GPIO Configuration    
-  PB8     ------> I2C1_SCL
-  PB9     ------> I2C1_SDA 
-  */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* Peripheral clock enable */
-  __I2C1_CLK_ENABLE();
-
-  hi2c.Instance = I2C1;
-  hi2c.Init.Timing = 0x10909CEC; // 100khz @ 80mhz
-  hi2c.Init.Timing = 0x00702991; // 400khz @ 80mhz
-  hi2c.Init.OwnAddress1 = 0;
-  hi2c.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c.Init.DualAddressMode = I2C_DUALADDRESS_DISABLED;
-  hi2c.Init.OwnAddress2 = 0;
-  hi2c.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c.Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
-  hi2c.Init.NoStretchMode = I2C_NOSTRETCH_DISABLED;
-  HAL_I2C_Init(&hi2c);
-  HAL_I2CEx_AnalogFilter_Config(&hi2c, I2C_ANALOGFILTER_ENABLED);
-
-  // reset Touch screen
-  TS_CE(0);
-  HAL_Delay(200);
+  // finish reset of the touch panel
   TS_CE(1);
   HAL_Delay(10);
   TS_CE(0);
@@ -567,10 +681,6 @@ void bagl_hal_draw_bitmap_within_rect(unsigned short x, unsigned short y, unsign
     colors565_4bits[i*2] = ((colors[i]>>16)&0xF8) | ((colors[i]>>(8+5))&0x07);
     colors565_4bits[i*2+1] = ((colors[i]>>5)&0xE0) | ((colors[i]>>3)&0x1F);  
   }
-  
-  // horizontal scan
-  screen_set_xy(x, y, x+width-1, y+height-1);
-  lcd_data(FLAG_COMMAND, HX8357_WRITE_MEMORY_START);
 
   // horizontal scan
   screen_set_xy(x, y, x+width-1, y+height-1);
@@ -621,9 +731,6 @@ void bagl_hal_draw_rect(unsigned int color, unsigned short x, unsigned short y, 
   // RGB 888 to RGB 565
   unsigned int color11 = ((color>>16)&0xF8) | ((color>>(8+5))&0x07);
   unsigned int color12 = ((color>>5)&0xE0) | ((color>>3)&0x1F);
-
-  screen_set_xy(x, y, x+width-1, y+height-1);
-  lcd_data(FLAG_COMMAND, HX8357_WRITE_MEMORY_START);
 
   screen_set_xy(x, y, x+width-1, y+height-1);
   lcd_data(FLAG_COMMAND, HX8357_WRITE_MEMORY_START);
