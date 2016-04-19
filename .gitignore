@@ -3,3 +3,5 @@ debug
 dep
 obj
 script.ld
+*.swp
+
