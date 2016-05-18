@@ -47,10 +47,9 @@ SECTIONS
     KEEP(*(.isr_vector))
 
 
-#ifdef HAVE_BL
-    /* place reset handler of the bootloader (bootsector) before the magic page, in the first page */
+    /* place reset handler of the bootloader (bootsector) before the magic page, in the first page,same for the loaded code */
     *(.text.Reset_Handler)
-
+#ifdef HAVE_BL
     . = ALIGN(PAGE_SIZE);
     
     /* NVM data (ex-filesystem) */
@@ -58,6 +57,7 @@ SECTIONS
 
     . = ALIGN(PAGE_SIZE);
 #endif // HAVE_BL
+
     /* bootloader main is right after the magic page to allow for bootloader upgrade easily */
     *(.bootsectormain*)
 

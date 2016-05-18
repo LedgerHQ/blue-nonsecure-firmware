@@ -1427,8 +1427,6 @@ void bootloader_apdu_interp(void) {
               sw = 0x6700; goto error;
             }
 
-            // prepare the VTOR
-            // to be done in called code // SCB->VTOR = (appmain_t)U4BE(G_io_apdu_buffer, 6+4);
             // start the code
             ((appmain_t)(U4BE(G_io_apdu_buffer, 6)))(0);
           }
@@ -1478,9 +1476,6 @@ void bootloader_delegate_boot(uint32_t button_press_duration) {
 
     // disable interruption before changing VTOR and delegate to application code
     __asm("cpsid i");
-
-    // delegate interrupts (per arch style, to avoid strange compat depending on the chip ABI)
-    // to be done in called code // SCB->VTOR = N_bootloader_configuration.vtor;
 
     // jump into the application code
     N_bootloader_configuration.appmain(button_press_duration);
@@ -1889,8 +1884,6 @@ void main(unsigned int button_press_duration)
   __asm("cpsid i");
   //clock_config(); // to setup frequency_hz, strangely it cannot be done ;( it seems like systicks becomes crazy after ward
   frequency_hz = 48000000;
-  /* Configure the Vector Table location add offset address ------------------*/
-  SCB->VTOR = &g_pfnVectors; /* Vector Table Relocation in Internal FLASH */
 #endif // HAVE_BL
 
   __asm("cpsie i");
