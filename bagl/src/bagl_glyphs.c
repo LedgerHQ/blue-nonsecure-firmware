@@ -17,6 +17,7 @@
 
 #include "string.h"
 #include "bagl.h"
+
 unsigned int const C_logo_ledger_colors[] = {
   0x00aaabae, 
   0x00585b65, 
@@ -369,6 +370,7 @@ unsigned char const C_logo_ledger_bitmap[] = {
   0x66, 0x66, 0x66, 0x66, 
 };
 
+
 unsigned int const C_icon_bootloader_colors[] = {
   0x00dadada, 
   0x00e7e7e7, 
@@ -419,6 +421,7 @@ unsigned char const C_icon_bootloader_bitmap[] = {
   0xf4, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x07, 0xaa, 0x0a, 0xfd, 0xff, 0xff, 0xff, 
   0xff, 
 };
+
 
 unsigned int const C_logo_ledger_blue_colors[] = {
   0x00989aa0, 
@@ -746,14 +749,23 @@ unsigned char const C_icon_backspace_bitmap[] = {
   0x40, 0xff, 0x07, 0x00, 0x00, 0x90, 
 };
 
-
 const bagl_glyph_array_entry_t const C_glyph_array[] = {
   { 0, 0, 0, NULL, NULL}, // icon_id = 0
+#ifdef HAVE_BAGL_GLYPH_LOGO_LEDGER
   { 101, 104, 4, C_logo_ledger_colors, C_logo_ledger_bitmap},
+#endif
+#ifdef HAVE_BAGL_GLYPH_LOGO_LEDGER_BLUE
   { 120, 72, 4, C_logo_ledger_blue_colors, C_logo_ledger_blue_bitmap},
+#endif 
+#ifdef HAVE_BAGL_GLYPH_LOGO_BOOTLOADER
   { 50, 50, 2, C_icon_bootloader_colors, C_icon_bootloader_bitmap},
+#endif
+#ifdef HAVE_BAGL_GLYPH_ICON_CLEAR
   { 16, 16, 2, C_icon_clear_colors, C_icon_clear_bitmap},
+#endif
+#ifdef HAVE_BAGL_GLYPH_ICON_BACKSPACE
   { 20, 14, 2, C_icon_backspace_colors, C_icon_backspace_bitmap},
+#endif
 };
 
 const unsigned int C_glyph_count = sizeof(C_glyph_array)/sizeof(C_glyph_array[0]);

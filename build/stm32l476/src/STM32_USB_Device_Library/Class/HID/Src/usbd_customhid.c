@@ -156,10 +156,50 @@ USBD_ClassTypeDef const USBD_CUSTOM_HID =
 #define USBD_VID                      0x2C97
 #define USBD_PID                      0x0000
 #define USBD_LANGID_STRING            0x409
-#define USBD_MANUFACTURER_STRING      "Ledger"
-#define USBD_PRODUCT_FS_STRING        "Ledger Blue"
-#define USBD_CONFIGURATION_FS_STRING  USBD_PRODUCT_FS_STRING
-#define USBD_INTERFACE_FS_STRING      USBD_PRODUCT_FS_STRING
+
+/* USB Standard Device Descriptor */
+const uint8_t const USBD_LangIDDesc[USB_LEN_LANGID_STR_DESC]= 
+{
+  USB_LEN_LANGID_STR_DESC,         
+  USB_DESC_TYPE_STRING,       
+  LOBYTE(USBD_LANGID_STRING),
+  HIBYTE(USBD_LANGID_STRING), 
+};
+
+const uint8_t const USB_SERIAL_STRING[] =
+{
+  0x2,      
+  USB_DESC_TYPE_STRING,    
+};
+
+const uint8_t const USBD_MANUFACTURER_STRING[] = {
+  6*2+2,
+  USB_DESC_TYPE_STRING,
+  'L', 0,
+  'e', 0,
+  'd', 0,
+  'g', 0,
+  'e', 0,
+  'r', 0,
+};
+
+const uint8_t const USBD_PRODUCT_FS_STRING[] = {
+  11*2+2,
+  USB_DESC_TYPE_STRING,
+  'L', 0,
+  'e', 0,
+  'd', 0,
+  'g', 0,
+  'e', 0,
+  'r', 0,
+  ' ', 0,
+  'B', 0,
+  'l', 0,
+  'u', 0,
+  'e', 0,
+};
+#define USBD_INTERFACE_FS_STRING USBD_PRODUCT_FS_STRING
+#define USBD_CONFIGURATION_FS_STRING USBD_PRODUCT_FS_STRING
 
 
 #ifdef HAVE_IO_USB_CDC
@@ -410,22 +450,6 @@ const uint8_t USBD_DeviceDesc[USB_LEN_DEV_DESC]= {
   USBD_MAX_NUM_CONFIGURATION  /* bNumConfigurations */
 }; /* USB_DeviceDescriptor */
 
-/* USB Standard Device Descriptor */
-const uint8_t USBD_LangIDDesc[USB_LEN_LANGID_STR_DESC]= 
-{
-  USB_LEN_LANGID_STR_DESC,         
-  USB_DESC_TYPE_STRING,       
-  LOBYTE(USBD_LANGID_STRING),
-  HIBYTE(USBD_LANGID_STRING), 
-};
-
-uint8_t USBD_StringSerial[USB_SIZ_STRING_SERIAL] =
-{
-  USB_SIZ_STRING_SERIAL,      
-  USB_DESC_TYPE_STRING,    
-};
-
-uint8_t USBD_StrDesc[USBD_MAX_STR_DESC_SIZ];
 
 USBD_CUSTOM_HID_HandleTypeDef     custom_hid_ClassData;
 
@@ -461,8 +485,8 @@ uint8_t *USBD_HID_LangIDStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
   */
 uint8_t *USBD_HID_ProductStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
-  USBD_GetString((uint8_t *)(uint8_t *)USBD_PRODUCT_FS_STRING, USBD_StrDesc, length);    
-  return USBD_StrDesc;
+  *length = sizeof(USBD_PRODUCT_FS_STRING);
+  return USBD_PRODUCT_FS_STRING;
 }
 
 /**
@@ -473,8 +497,8 @@ uint8_t *USBD_HID_ProductStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length
   */
 uint8_t *USBD_HID_ManufacturerStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
-  USBD_GetString((uint8_t *)(uint8_t *)USBD_MANUFACTURER_STRING, USBD_StrDesc, length);
-  return USBD_StrDesc;
+  *length = sizeof(USBD_MANUFACTURER_STRING);
+  return USBD_MANUFACTURER_STRING;
 }
 
 /**
@@ -485,16 +509,8 @@ uint8_t *USBD_HID_ManufacturerStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *l
   */
 uint8_t *USBD_HID_SerialStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
-  *length = USB_SIZ_STRING_SERIAL;
-
-  memset(USBD_StrDesc, 0, sizeof(USBD_StrDesc));
-  USBD_StrDesc[0] = 0x10;
-  USBD_StrDesc[1] = USB_DESC_TYPE_STRING;
-  
-  /* Update the serial number string descriptor with the data from the unique ID*/
-  //Get_SerialNum();
-  
-  return USBD_StrDesc;
+  *length = sizeof(USB_SERIAL_STRING);
+  return USB_SERIAL_STRING;
 }
 
 /**
@@ -505,8 +521,8 @@ uint8_t *USBD_HID_SerialStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
   */
 uint8_t *USBD_HID_ConfigStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
-  USBD_GetString((uint8_t *)(uint8_t *)USBD_CONFIGURATION_FS_STRING, USBD_StrDesc, length); 
-  return USBD_StrDesc;  
+  *length = sizeof(USBD_CONFIGURATION_FS_STRING);
+  return USBD_CONFIGURATION_FS_STRING;
 }
 
 /**
@@ -517,30 +533,8 @@ uint8_t *USBD_HID_ConfigStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
   */
 uint8_t *USBD_HID_InterfaceStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
-  USBD_GetString((uint8_t *)(uint8_t *)USBD_INTERFACE_FS_STRING, USBD_StrDesc, length);
-  return USBD_StrDesc;  
-}
-
-/**
-  * @brief  Create the serial number string descriptor 
-  * @param  None 
-  * @retval None
-  */
-static void Get_SerialNum(void)
-{
-  uint32_t deviceserial0, deviceserial1, deviceserial2;
-  
-  deviceserial0 = *(uint32_t*)DEVICE_ID1;
-  deviceserial1 = *(uint32_t*)DEVICE_ID2;
-  deviceserial2 = *(uint32_t*)DEVICE_ID3;
-  
-  deviceserial0 += deviceserial2;
-  
-  if (deviceserial0 != 0)
-  {
-    IntToUnicode (deviceserial0, (uint8_t*)&USBD_StringSerial[2] ,8);
-    IntToUnicode (deviceserial1, (uint8_t*)&USBD_StringSerial[18] ,4);
-  }
+  *length = sizeof(USBD_INTERFACE_FS_STRING);
+  return USBD_INTERFACE_FS_STRING;
 }
 
 /**

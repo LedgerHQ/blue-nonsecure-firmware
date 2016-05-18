@@ -20,13 +20,18 @@
  * ========================================================================================== 
  */
 
-#include "stm32l4xx_nucleo_bluenrg.h"
-
-
 #include "stm32l4xx_hal.h"
 
  // not used for now
 #define THROW(x) for(;;);
+
+
+// faster than the huge hal
+#define REG_SET(reg, mask, value) reg = (reg & ~mask) | value 
+#define REG_GET(reg, mask) (reg & mask)
+#define BB_OUT(port, pin, value) REG_SET((port)->ODR, (1<<(pin)), (value<<(pin))) 
+#define BB_IN(port, pin) REG_GET((port)->IDR, (1<<(pin)))
+
 
 //#define USE_USART_DMA
 #define SC_PPS_SUPPORT

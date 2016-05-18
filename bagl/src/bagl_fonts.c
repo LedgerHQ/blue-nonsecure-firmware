@@ -38,23 +38,68 @@
 
 #include "bagl_font_comic_sans_ms_20px.inc"
 
+const bagl_font_t fontNONE = {
+   0 , /* font height in pixels   */
+   0 , /* baseline distance from top */
+   0, /* kerning */
+   0x0000, /* first character */
+   0x0000, /* last character  */
+   NULL,  /* address of first character */
+};
+
 const bagl_font_t* const C_bagl_fonts[] = {
 
+#ifdef HAVE_BAGL_FONT_LUCIDA_CONSOLE_8
   &fontLUCIDA_CONSOLE_8,
+#else
+  &fontNONE,
+#endif // HAVE_BAGL_FONT_LUCIDA_CONSOLE_8
 
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_BOLD_13
   &fontOPEN_SANS_BOLD_13PX,
+#else
+  &fontNONE,
+#endif
+
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_BOLD_21
   &fontOPEN_SANS_BOLD_21PX,
-  
+#else
+  &fontNONE,
+#endif
+
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_LIGHT_13
   &fontOPEN_SANS_LIGHT_13PX,
+#else
+  &fontNONE,
+#endif
+
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_LIGHT_14
   &fontOPEN_SANS_LIGHT_14PX,
+#else
+  &fontNONE,
+#endif
+
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_LIGHT_16
   &fontOPEN_SANS_LIGHT_16PX,
+#else
+  &fontNONE,
+#endif
+
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_LIGHT_21
   &fontOPEN_SANS_LIGHT_21PX,
+#else
+  &fontNONE,
+#endif
 
+#ifdef HAVE_BAGL_FONT_OPEN_SANS_LIGHT_18
   &fontOPEN_SANS_SEMIBOLD_18PX,
+#else
+  &fontNONE,
+#endif
 
-#ifndef HAVE_BL
+#ifdef HAVE_BAGL_FONT_COMIC_SANS_MS_20
   &fontCOMIC_SANS_MS_20PX,
 #else
-  NULL,
+  &fontNONE,
 #endif // HAVE_BL
 };

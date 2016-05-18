@@ -312,12 +312,6 @@ void              HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 }
 #endif
 
-// faster than the huge hal
-#define REG_SET(reg, mask, value) reg = (reg & ~mask) | value 
-#define REG_GET(reg, mask) (reg & mask)
-#define BB_OUT(port, pin, value) REG_SET((port)->ODR, (1<<(pin)), (value<<(pin))) 
-#define BB_IN(port, pin) REG_GET((port)->IDR, (1<<(pin)))
-
 #endif /* __STM32L4xx_HAL_GPIO_H */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

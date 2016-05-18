@@ -116,29 +116,32 @@ volatile struct {
 } G_io_button;
 
 #ifdef DEBUG_BUTTON_ALWAYS_PUSHED
-#define BUTTON_PRESS_DURATION_BOOT_POWER_OFF         50 // long enough to avoid people being troubled when trying to go bootloader
-#define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER   20
-#define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY       10
-#define BUTTON_PRESS_DURATION_BOOT_POWER_ON          10
-#define BUTTON_PRESS_DURATION_POWER_OFF            1000
-#ifdef DEBUG_BUTTON_FLASHBACK
-#error FLASHBACK not supported with ALWAYS PUSHED
-#endif // DEBUG_BUTTON_FLASHBACK
+  #define BUTTON_PRESS_DURATION_BOOT_POWER_OFF         50 // long enough to avoid people being troubled when trying to go bootloader
+  #define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER   20
+  #define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY       10
+  #define BUTTON_PRESS_DURATION_BOOT_POWER_ON          10
+  #define BUTTON_PRESS_DURATION_POWER_OFF            1000
+  #ifdef DEBUG_BUTTON_FLASHBACK
+  #error FLASHBACK not supported with ALWAYS PUSHED
+  #endif // DEBUG_BUTTON_FLASHBACK
+  #ifdef DEBUG_BUTTON_LINK_DEBUG
+  #define BUTTON_PRESS_DURATION_LINK_DEBUG           (BUTTON_PRESS_DURATION_POWER_OFF-2000)
+  #endif //DEBUG_BUTTON_LINK_DEBUG
 #else // DEBUG_BUTTON_ALWAYS_PUSHED
-#define BUTTON_PRESS_DURATION_BOOT_POWER_OFF       5000 // long enough to avoid people being troubled when trying to go bootloader
-#define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER 3000
-#define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY     1500
-#define BUTTON_PRESS_DURATION_BOOT_POWER_ON         100
-#define BUTTON_PRESS_DURATION_POWER_OFF            5000 // very long press to power off
+  #define BUTTON_PRESS_DURATION_BOOT_POWER_OFF       5000 // long enough to avoid people being troubled when trying to go bootloader
+  #define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER 3000
+  #define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY     1500
+  #define BUTTON_PRESS_DURATION_BOOT_POWER_ON         100
+  #define BUTTON_PRESS_DURATION_POWER_OFF            5000 // very long press to power off
 
-#ifdef DEBUG_BUTTON_FLASHBACK
-#define BUTTON_PRESS_DURATION_BOOT_SE_FLASHBACK    4000
-#endif //DEBUG_BUTTON_FLASHBACK
+  #ifdef DEBUG_BUTTON_FLASHBACK
+  #define BUTTON_PRESS_DURATION_BOOT_SE_FLASHBACK    4000
+  #endif //DEBUG_BUTTON_FLASHBACK
 
-// the L4 button when pressed a long time switch to a verbose mode
-#ifdef DEBUG_BUTTON_LINK_DEBUG
-#define BUTTON_PRESS_DURATION_LINK_DEBUG           (BUTTON_PRESS_DURATION_POWER_OFF-2000)
-#endif //DEBUG_BUTTON_LINK_DEBUG
+  // the L4 button when pressed a long time switch to a verbose mode
+  #ifdef DEBUG_BUTTON_LINK_DEBUG
+  #define BUTTON_PRESS_DURATION_LINK_DEBUG           (BUTTON_PRESS_DURATION_POWER_OFF-2000)
+  #endif //DEBUG_BUTTON_LINK_DEBUG
 
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 

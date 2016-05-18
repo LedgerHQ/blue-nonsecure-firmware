@@ -243,5 +243,13 @@ extern void io_usb_hid_init(void);
 #define WAIT_EVENT 2
 #define WAIT_BLE_READ_DATA 3
 
+
+// faster than the huge hal
+#define REG_SET(reg, mask, value) reg = (reg & ~mask) | value 
+#define REG_GET(reg, mask) (reg & mask)
+#define BB_OUT(port, pin, value) REG_SET((port)->ODR, (1<<(pin)), (value<<(pin))) 
+#define BB_IN(port, pin) REG_GET((port)->IDR, (1<<(pin)))
+
+
 #endif
 
