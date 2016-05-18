@@ -48,6 +48,7 @@
 
 #include "bootloader.h"
 
+
 // not used for now
 #define THROW(x) for(;;);
 
@@ -99,8 +100,18 @@ volatile struct {
   #define MODE_POWER_OFF      4
   #define MODE_POWER_ON       8
   #define MODE_BOOT          16
+#ifdef DEBUG_BUTTON_FLASHBACK
+  #define MODE_SE_FLASHBACK  32
+#endif // DEBUG_BUTTON_FLASHBACK
+#ifdef DEBUG_BUTTON_LINK_DEBUG
+  #define MODE_LINK_DEBUG    64
+#endif // DEBUG_BUTTON_LINK_DEBUG
   uint32_t displayed_mode;
 
+
+#ifdef DEBUG_BUTTON_LINK_DEBUG
+  unsigned int link_debug;
+#endif // DEBUG_BUTTON_LINK_DEBUG
   uint32_t boot_moment;
 } G_io_button;
 
@@ -110,12 +121,25 @@ volatile struct {
 #define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY       10
 #define BUTTON_PRESS_DURATION_BOOT_POWER_ON          10
 #define BUTTON_PRESS_DURATION_POWER_OFF            1000
+#ifdef DEBUG_BUTTON_FLASHBACK
+#error FLASHBACK not supported with ALWAYS PUSHED
+#endif // DEBUG_BUTTON_FLASHBACK
 #else // DEBUG_BUTTON_ALWAYS_PUSHED
 #define BUTTON_PRESS_DURATION_BOOT_POWER_OFF       5000 // long enough to avoid people being troubled when trying to go bootloader
 #define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER 3000
 #define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY     1500
 #define BUTTON_PRESS_DURATION_BOOT_POWER_ON         100
-#define BUTTON_PRESS_DURATION_POWER_OFF            1000
+#define BUTTON_PRESS_DURATION_POWER_OFF            5000 // very long press to power off
+
+#ifdef DEBUG_BUTTON_FLASHBACK
+#define BUTTON_PRESS_DURATION_BOOT_SE_FLASHBACK    4000
+#endif //DEBUG_BUTTON_FLASHBACK
+
+// the L4 button when pressed a long time switch to a verbose mode
+#ifdef DEBUG_BUTTON_LINK_DEBUG
+#define BUTTON_PRESS_DURATION_LINK_DEBUG           (BUTTON_PRESS_DURATION_POWER_OFF-2000)
+#endif //DEBUG_BUTTON_LINK_DEBUG
+
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
 volatile struct touch_state_s G_io_touch;
@@ -492,6 +516,13 @@ void SysTick_Handler(void)
         screen_printf("Bootloader\n");
       }
 
+#ifdef DEBUG_BUTTON_FLASHBACK
+      if (G_io_button.duration_ms > BUTTON_PRESS_DURATION_BOOT_SE_FLASHBACK && ! (G_io_button.displayed_mode & MODE_SE_FLASHBACK)) {
+        G_io_button.displayed_mode |= MODE_SE_FLASHBACK;
+        screen_printf("SE flashback\n");
+      }
+#endif // DEBUG_BUTTON_FLASHBACK
+
       if (G_io_button.duration_ms > BUTTON_PRESS_DURATION_BOOT_POWER_OFF && ! (G_io_button.displayed_mode & MODE_POWER_OFF)) {
         G_io_button.displayed_mode |= MODE_POWER_OFF;
         PRINTF("Mode power off\n");
@@ -505,6 +536,14 @@ void SysTick_Handler(void)
       }
     }
     else {
+#ifdef DEBUG_BUTTON_LINK_DEBUG
+      if (G_io_button.duration_ms > BUTTON_PRESS_DURATION_LINK_DEBUG && ! (G_io_button.displayed_mode & MODE_LINK_DEBUG)) {
+        G_io_button.link_debug++;
+        G_io_button.displayed_mode |= MODE_LINK_DEBUG;
+        screen_printf("SE link debug level %d\n", G_io_button.link_debug);
+      }
+#endif // DEBUG_BUTTON_LINK_DEBUG
+
       if (G_io_button.duration_ms > BUTTON_PRESS_DURATION_POWER_OFF && ! (G_io_button.displayed_mode & MODE_BOOT) && ! (G_io_button.displayed_mode & MODE_POWER_OFF)) {
         G_io_button.displayed_mode |= MODE_POWER_OFF;
         PRINTF("Mode power off\n");
@@ -522,15 +561,12 @@ void SysTick_Handler(void)
 
   if (G_seproxyhal_event_timeout_enable) {
     G_seproxyhal_event_timeout += SYSTICK_MS;
-    if (G_seproxyhal_event_timeout > SEPROXYHAL_EVENT_TIMEOUT_MS && G_seproxyhal_event_timeout_enable == 1) {
+    #ifdef DEBUG_BUTTON_LINK_DEBUG
+    if (G_io_button.link_debug && G_seproxyhal_event_timeout > SEPROXYHAL_EVENT_TIMEOUT_MS && G_seproxyhal_event_timeout_enable == 1) {
       G_seproxyhal_event_timeout_enable = 2;
       screen_printf("Timeout waiting status for event: %.*H...\n", 3, G_seproxyhal_event_timeout_header);
     }
-    // enable to continue protocol even if error, just notifying
-    if (G_seproxyhal_event_timeout > 2*SEPROXYHAL_EVENT_TIMEOUT_MS) {
-      G_seproxyhal_event_timeout_enable = 0;
-      G_io_seproxyhal_state = WAIT_EVENT;
-    }
+    #endif // DEBUG_BUTTON_LINK_DEBUG
   }
 
 
@@ -1565,11 +1601,18 @@ void display_l4_mode_touch(void) {
 }
 
 extern unsigned int g_pfnVectors;
+extern unsigned int g_pfnVectors_copy;
+
+extern unsigned int _etext;
+extern unsigned int  _data;
+extern unsigned int  _edata;
+extern unsigned int  _bss;
+extern unsigned int  _ebss;
+extern unsigned int  _estack;
 
 void main(unsigned int button_press_duration)
 { 
   GPIO_InitTypeDef GPIO_InitStruct;
-
 
 #ifdef HAVE_BL
   /* FPU settings ------------------------------------------------------------*/
@@ -1597,13 +1640,14 @@ void main(unsigned int button_press_duration)
   /* Disable all interrupts */
   RCC->CIER = 0x00000000;
 
-  /* Configure the Vector Table location add offset address ------------------*/
-  SCB->VTOR = &g_pfnVectors; /* Vector Table Relocation in Internal FLASH */
-  
 
   G_io_button.displayed_mode = 0;
   G_io_button.pressed = 0;
   G_io_button.duration_ms = 0; 
+
+  #ifdef DEBUG_BUTTON_LINK_DEBUG
+  G_io_button.link_debug = 0;
+  #endif // DEBUG_BUTTON_LINK_DEBUG
 
 
   __asm("cpsie i");
@@ -1810,8 +1854,11 @@ void main(unsigned int button_press_duration)
   // power on for short and medium press
   if (/*BUTTON_PRESS_DURATION_CTRL_BOOTLOADER != 0xFFFFFFFFUL use a nvram struct for these params (with antitearing)
     && */
-    G_io_button.duration_ms < BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER
-    && ! (G_io_button.displayed_mode & MODE_MCU_BOOTLOADER)
+    (G_io_button.duration_ms < BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER
+#ifdef DEBUG_BUTTON_FLASHBACK
+    && ! (G_io_button.displayed_mode & MODE_SE_FLASHBACK)
+#endif // DEBUG_BUTTON_FLASHBACK
+    && ! (G_io_button.displayed_mode & MODE_MCU_BOOTLOADER))
 #ifdef DEBUG_BUTTON_ALWAYS_PUSHED
     || (G_io_button.displayed_mode & MODE_POWER_OFF) 
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
@@ -1834,6 +1881,10 @@ void main(unsigned int button_press_duration)
   G_io_button.boot_moment = 0;
   G_io_button.pressed = 0;
   G_io_button.displayed_mode = 0;
+  #ifdef DEBUG_BUTTON_LINK_DEBUG
+  G_io_button.link_debug = 0;
+  #endif // DEBUG_BUTTON_LINK_DEBUG
+
 
   __asm("cpsid i");
   //clock_config(); // to setup frequency_hz, strangely it cannot be done ;( it seems like systicks becomes crazy after ward
@@ -1934,8 +1985,8 @@ reboot:
 
     // ######### ENABLE BLE TRANSPORT
     // await for BLE connection to process APDU through ST ISO bootloader
-    //BLE_power(1, recovery_name);
-    BLE_power(0, recovery_name);
+    //BLE_power(0, recovery_name);
+    BLE_power(1, recovery_name);
 
     HAL_Delay(500);
     display_l4_mode("Ledger Blue", "MANUFACTURER MODE");
@@ -2048,7 +2099,7 @@ reboot:
   }
 
   // session start the SE
-  G_io_se_powered = 0;
+  G_io_ble.powered = 0;
 
   G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_SESSION_START_EVENT;
   G_io_seproxyhal_buffer[1] = 0;
@@ -2062,6 +2113,12 @@ reboot:
 #ifdef FORCE_ST31_BACK_TO_STLOADER
   G_io_seproxyhal_buffer[3] = 4;
 #endif // FORCE_ST31_BACK_TO_STLOADER
+#ifdef DEBUG_BUTTON_FLASHBACK
+  // flashback asked
+  if (G_io_button.displayed_mode & MODE_SE_FLASHBACK || button_press_duration >= BUTTON_PRESS_DURATION_BOOT_SE_FLASHBACK) {
+    G_io_seproxyhal_buffer[3] |= 4;
+  }
+#endif // DEBUG_BUTTON_FLASHBACK
 #ifdef DEBUG_BUTTON_ALWAYS_PUSHED
   G_io_seproxyhal_buffer[3] = 0;
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
@@ -2103,7 +2160,7 @@ reboot:
 
           // reset power off, a new command has been received (even if not expected)
           backlight_enable(1);
-
+		  
           switch(G_io_seproxyhal_buffer[0]) {
             default:
             case SEPROXYHAL_TAG_BLE_RADIO_POWER:
@@ -2118,7 +2175,11 @@ reboot:
             case SEPROXYHAL_TAG_USB_CONFIG:
             case SEPROXYHAL_TAG_USB_EP_PREPARE:
             case SEPROXYHAL_TAG_GO_BOOTLOADER:
-              screen_printf("unexpected tlv: %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
+              #ifdef DEBUG_BUTTON_LINK_DEBUG
+              if (G_io_button.link_debug) {
+                screen_printf("unexpected tlv: %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
+              }
+              #endif // DEBUG_BUTTON_LINK_DEBUG
               break;
 
             // interpret printf within wait event, for easier debug of hardfault on the SE 
@@ -2530,14 +2591,14 @@ reboot:
         // reset power off, a new command has been received
         backlight_enable(1);
 
-        //screen_printf("%.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
+#ifdef DEBUG_BUTTON_LINK_DEBUG
+        if (G_io_button.link_debug >= 2) {
+          screen_printf("< %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
+        }
+#endif // DEBUG_BUTTON_LINK_DEBUG
 
         switch(G_io_seproxyhal_buffer[0]) {
           case SEPROXYHAL_TAG_BLE_RADIO_POWER:
-            if (((G_io_seproxyhal_buffer[3]?1:0) ^ G_io_se_powered) == 0) {
-              // ignore
-              continue;
-            }
             PRINTF("BO. ");
             // turn BLE ON or OFF, use the last defined service. (make discoverable)
             BLE_power(G_io_seproxyhal_buffer[3]&0x2, NULL); // if not advertising, then don't turn on
@@ -2545,8 +2606,6 @@ reboot:
             memset(G_io_seproxyhal_ble_handles, 0, sizeof(G_io_seproxyhal_ble_handles));
             G_io_seproxyhal_ble_handles[1] = G_io_ble.tx_characteristic_handle ;
             G_io_seproxyhal_ble_handles[2] = G_io_ble.rx_characteristic_handle + 1;
-
-            G_io_se_powered = G_io_seproxyhal_buffer[3]?1:0;
             break;
           case SEPROXYHAL_TAG_BLE_NOTIFY_INDICATE_STATUS:
             //PRINTF("BI. ");
@@ -2623,7 +2682,7 @@ reboot:
               // magic replace if necessary
               if (((l - sizeof(bagl_component_t)) >= sizeof(ESC_DEVICE_NAME) - 1) && 
                   (memcmp(&G_io_seproxyhal_buffer[3+sizeof(bagl_component_t)], ESC_DEVICE_NAME, sizeof(ESC_DEVICE_NAME) - 1) == 0)) {
-                if (G_io_se_powered) {
+                if (G_io_ble.powered) {
                   bagl_draw_with_context(&bagl_e.c, G_io_ble.last_discovered_name + 1, strlen(G_io_ble.last_discovered_name + 1), BAGL_ENCODING_LATIN1);
                 } else {
                   bagl_draw_with_context(&bagl_e.c, DEVICE_NAME_NA, strlen(DEVICE_NAME_NA), BAGL_ENCODING_LATIN1);                
@@ -2671,6 +2730,8 @@ reboot:
                   G_seproxyhal_event_timeout_enable = 0;
                   break;
                 case SEPROXYHAL_TAG_GENERAL_STATUS_MORE_COMMAND:
+                  // card has replied and is indicating it will be speaking later on
+                  G_seproxyhal_event_timeout_enable = 0;
                 default:
                   // remain in wait command
                   break;
@@ -2826,6 +2887,11 @@ void io_seproxyhal_send_start(unsigned char * buffer, unsigned short length) {
   G_seproxyhal_event_timeout = 0;
   G_seproxyhal_event_timeout_enable = 1;
   memmove(G_seproxyhal_event_timeout_header, buffer, 3);
+#ifdef DEBUG_BUTTON_LINK_DEBUG
+  if (G_io_button.link_debug >= 2) {
+    screen_printf("> %.*H\n", MIN(length, 256), buffer);
+  }
+#endif // DEBUG_BUTTON_LINK_DEBUG
   io_seproxyhal_send(buffer, length);
 }
 

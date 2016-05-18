@@ -30,7 +30,7 @@
 #define SEPROXYHAL_TAG_BLE_WRITE_REQUEST_EVENT     0x03
 #define SEPROXYHAL_TAG_BLE_READ_REQUEST_EVENT      0x04
 #define SEPROXYHAL_TAG_BUTTON_PUSH_EVENT           0x05
-#define SEPROXYHAL_LONG_BUTTON_PUSH_MS               2000
+#define SEPROXYHAL_LONG_BUTTON_PUSH_MS               1000
 #define SEPROXYHAL_TAG_NFC_FIELD_DETECTION_EVENT   0x06
 #define SEPROXYHAL_TAG_NFC_APDU_RECEIVED_EVENT     0x07
 #define SEPROXYHAL_TAG_BATTERY_NOTIFICATION_EVENT  0x08
@@ -145,6 +145,8 @@ extern volatile unsigned char G_io_apdu_buffer[260];
 extern volatile unsigned short G_io_apdu_length;
 
 extern volatile struct ble_state_s {
+  unsigned int powered;
+
   unsigned short gap_service_handle;
   unsigned short gap_dev_name_char_handle;
   unsigned short gap_appearance_char_handle;

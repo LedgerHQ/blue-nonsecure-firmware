@@ -173,15 +173,14 @@ void BLE_make_discoverable(const char* discovered_name) {
 }
 
 
-unsigned int last_state;
 void BLE_power(unsigned char powered, const char* discovered_name) {
   GPIO_InitTypeDef GPIO_InitStruct;
   tBleStatus ret;
 
-  if (last_state == powered) {
+  if (G_io_ble.powered && powered) {
     return;
   }
-  last_state = powered;
+  G_io_ble.powered = powered;
 
   BLE_diversify_name_address();
   

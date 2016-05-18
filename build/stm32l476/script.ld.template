@@ -9,8 +9,8 @@ MEMORY
   FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 256K
   FLASH_BL (rx) : ORIGIN = 0x08000000,   LENGTH = 256K
 #else 
-  FLASH_BL (rx) : ORIGIN = 0x08000000,   LENGTH = 256K-0x13000
-  FLASH (rx) : ORIGIN = 0x08013000,   LENGTH = 256K-0x13000
+  FLASH_BL (rx) : ORIGIN = 0x08000000,   LENGTH = 256K
+  FLASH (rx) : ORIGIN = UPGRADE_ADDRESS,   LENGTH = 0x80040000-UPGRADE_ADDRESS
 #endif // HAVE_BL
   SRAM (rwx) : ORIGIN = 0x20000000,   LENGTH = 32K
 }
@@ -59,7 +59,11 @@ SECTIONS
     . = ALIGN(PAGE_SIZE);
 #endif // HAVE_BL
     /* bootloader main is right after the magic page to allow for bootloader upgrade easily */
-    *(.blmain*)
+    *(.bootsectormain*)
+
+    /* ensure alignment of vector table copy */
+    . = ALIGN(0x80);
+    KEEP(*(.isr_vector_copy))
 
     /* place the other code and rodata defined BUT nvram variables that are displaced in a r/w area */
     *(.text*)
@@ -108,6 +112,10 @@ SECTIONS
 
   .signature (NOLOAD) :
   {
+
+    . = ALIGN(PAGE_SIZE); 
+    PROVIDE(_eloadedtext = .);
+
     /* Ensure to place signature at the end, aligned on an AES block */
     . = ORIGIN(FLASH) + LENGTH(FLASH) - UNSEC_SIGNATURE_PADDED_MAX_LENGTH - 16;
 

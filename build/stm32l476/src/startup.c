@@ -22,8 +22,10 @@ void Handler(void);
 extern void SystemInit (void);
 
 #include "bootloader.h"
+#include "stm32l4xx.h"
 
 bootloader_configuration_t N_bootloader_configuration;
+
 
 extern unsigned long _etext;
 extern unsigned long _data;
@@ -123,11 +125,11 @@ void LCD_IRQHandler (void) __attribute__ ((weak, alias ("Handler")));
 void RNG_IRQHandler (void) __attribute__ ((weak, alias ("Handler")));
 void FPU_IRQHandler (void) __attribute__ ((weak, alias ("Handler")));
 
+void blmain(volatile unsigned int button_press_duration);
 
 void
 Reset_Handler(volatile unsigned int button_press_duration)
 {
-    unsigned long *pulSrc, *pulDest;
 
 #ifdef HAVE_BL
     // this is a boot sector to allow for bootloader upgrade
@@ -137,32 +139,15 @@ Reset_Handler(volatile unsigned int button_press_duration)
     }
 #endif // HAVE_BL
 
-    // no init values in tacos, done explicitely by modules
-    //
-    // Copy the data segment initializers from flash to SRAM.
-    //
-    pulSrc = &_etext;
-    for(pulDest = &_data; pulDest < &_edata; )
-    {
-        *pulDest++ = *pulSrc++;
-    }
-
-    // OTO: if not done, then the whole ST hal is pure junk, *Init are definitely well written ...
-    //
-    // Zero fill the bss segment.
-    //
-    for(pulDest = &_bss; pulDest < &_ebss; )
-    {
-        *pulDest++ = 0;
-    }    
-
-    // arm semihosting initialise_monitor_handles();
+    // arm semihosting 
+    //initialise_monitor_handles();
 
     //
     // Call the application's entry point.
     //
-    main(button_press_duration);
+    blmain(button_press_duration);
 }
+
 
 void
 Handler(void)
@@ -177,6 +162,109 @@ Handler(void)
 
 __attribute__ ((section(".isr_vector")))
 void (* const g_pfnVectors[])(void) =
+{
+  &_estack
+  ,Reset_Handler
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+  ,0
+};
+
+__attribute__ ((section(".isr_vector_copy")))
+void (* const g_pfnVectors_copy[])(void) =
 {
   &_estack
   ,Reset_Handler
@@ -277,3 +365,30 @@ void (* const g_pfnVectors[])(void) =
   ,RNG_IRQHandler
   ,FPU_IRQHandler
 };
+
+
+__attribute__ ((section(".bootsectormain")))
+void blmain(volatile unsigned int button_press_duration) {
+  unsigned long *pulSrc, *pulDest;
+
+  // redo init in case of bootloader patching (data have been relocated since bootsector)
+  // Copy the data segment initializers from flash to SRAM.
+  //
+  pulSrc = &_etext;
+  for(pulDest = &_data; pulDest < &_edata; )
+  {
+      *pulDest++ = *pulSrc++;
+  }
+
+  // Zero fill the bss segment.
+  //
+  for(pulDest = &_bss; pulDest < &_ebss; )
+  {
+      *pulDest++ = 0;
+  }    
+
+  /* Configure the Vector Table location add offset address ------------------*/
+  SCB->VTOR = &g_pfnVectors_copy; /* Vector Table Relocation in Internal FLASH, but not the one in the Bootsector */
+
+  main(button_press_duration);
+}

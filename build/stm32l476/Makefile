@@ -35,6 +35,7 @@ DATE        := $(shell date "+%d %B %G")
 
 #VERSION     := $(shell date "+%Y%m%d")
 VERSION     := 1.1
+UPGRADE_ADDRESS := $(shell cat debug/stm32l476_bootloader.map | grep "_eloadedtext" | grep 0x | tr -s ' '| cut -f2 -d' ')
 
 $(info Building version: $(VERSION))
 
@@ -79,11 +80,14 @@ DEFINES += BACKLIGHT_AUTODIM_MS=\(1000*20\)
 
 # blue final
 DEFINES += WATCHDOG_POWEROFF_MS=\(10*1000*60\) BACKLIGHT_AUTOOFF_MS=\(1000*30\) HAVE_PT035HV_ROTATION_180
+# output the data over the SE iso link
+DEFINES += DEBUG_BUTTON_LINK_DEBUG
 
 #DEFINES += PRINTF\(...\)='screen_printf(__VA_ARGS__)'
 DEFINES += PRINTF\(...\)
 
 DEFINES += VERSION=\"$(VERSION)\"
+DEFINES += UPGRADE_ADDRESS=$(UPGRADE_ADDRESS)
 
 ##############
 # Compiler #
@@ -138,6 +142,7 @@ bin/$(PROG): $(OBJECT_FILES) script.ld.template Makefile
 	$(call log,$(call link_cmdline,$(OBJECT_FILES) $(LDLIBS),$@))
 	$(CCPATH)/$(TARGET)objcopy -O ihex -S bin/$(PROG) bin/$(PROG).hex
 	$(CCPATH)/$(TARGET)objdump -d -S bin/$(PROG) > debug/$(PROG).asm
+	$(call log,srec_cat -multiple -Output -Intel bin/stm32l476_bootloader.hex -Intel -crop `cat debug/stm32l476_bootloader.map | grep "blmain" | grep 0x | tr -s ' '| cut -f2 -d' '` 0x20000000 bin/stm32l476_bootloader.hex -Intel -crop 0x08000000 0x08000800 > bin/stm32l476_bootloader-upgrade.hex)
 	$(call log,[ ! -f bin/stm32l476_seproxyhal.hex ] || srec_cat -multiple -Output -Intel bin/stm32l476_seproxyhal.hex -Intel -crop 0x08000000 0x20000000 -random-fill -minimum-addr bin/stm32l476_seproxyhal.hex -Intel 0x0803FFB0  > bin/$(PROG)-strip.hex)
 	$(call log,[ ! -f bin/stm32l476_seproxyhal.hex ] || python dumpLoadMCU.py --targetId=0x04000001 --fileName=`pwd`/bin/$(PROG)-strip.hex --bootAddr=`cat debug/$(PROG).map | grep "          Reset_Handler$$" | grep 0x | tr -s ' '| cut -f2 -d' '` > bin/$(PROG).patch_apdu)
 	$(call log,)

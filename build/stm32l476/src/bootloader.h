@@ -22,7 +22,6 @@ typedef struct bootloader_configuration_s {
 extern bootloader_configuration_t N_bootloader_configuration;
 
 // ensure placement for bootsector delegation to be always stable
-__attribute__ ((section(".blmain")))
 void main(volatile unsigned int button_press_duration);
 
 #endif // BOOTLOADER_H

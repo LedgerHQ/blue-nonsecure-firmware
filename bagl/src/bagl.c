@@ -289,66 +289,95 @@ void bagl_draw_circle_helper(unsigned int color, unsigned int x_center, unsigned
 
   int x = radius;
   int y = 0;
-  int last_y = y;
-  int last_x = x;
   int decisionOver2 = 1 - x;   // Decision criterion divided by 2 evaluated at x=r, y=0
+  int dradius = radius-radiusint;
+
+/*
+   128 ***** 32
+      *     *
+  64 *       * 16
+    *         *    
+    *         *
+   4 *       * 1
+      *     *
+     8 ***** 2
+*/
+  unsigned int drawint = (radiusint > 0 && dradius > 0 /*&& xint <= yint*/);
 
   while( y <= x )
   {
-    unsigned int drawint = (radiusint > 0 && radiusint < radius /*&& xint <= yint*/);
-
-
     if (octants & 1) { // 
       bagl_hal_draw_rect(color, x_center,   y+y_center, x, 1);
       if (drawint) {
-        bagl_hal_draw_rect(colorint, x_center,   y+y_center, x-1, 1);
+        bagl_hal_draw_rect(colorint, x_center,   y+y_center, x-dradius, 1);
       }
     }
     if (octants & 2) { // 
+      /*
       bagl_hal_draw_rect(color, x_center,   x+y_center, y, 1);
-      /*if (drawint && x < radius) {
+      if (drawint && x < radius) {
         bagl_hal_draw_rect(colorint, x_center,   x+y_center, y-1, 1);
-      }*/
+      }
+      */
+      bagl_hal_draw_rect(color, x_center+y, y_center+x-radius, 1, radius);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center+y, y_center+x-radius, 1, radius-dradius);
+      }
     }
     if (octants & 4) { // 
       bagl_hal_draw_rect(color, x_center-x, y+y_center, x, 1);
       if (drawint) {
-        bagl_hal_draw_rect(colorint, x_center-x+1, y+y_center, x-1, 1);
+        bagl_hal_draw_rect(colorint, x_center-x+(dradius), y+y_center, x-dradius, 1);
       }
     }
     if (octants & 8) { // 
+      /*
       bagl_hal_draw_rect(color, x_center-y, x+y_center, y, 1);
-      /*if (drawint && x < radius) {
+      if (drawint && x < radius) {
         bagl_hal_draw_rect(colorint, x_center-y+1, x+y_center, y-1, 1);
-      }*/
+      }
+      */
+      bagl_hal_draw_rect(color, x_center-y, y_center+x-radius, 1, radius);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center-y, y_center+x-radius, 1, radius-dradius);
+      }
     }
     if (octants & 16) { //
       bagl_hal_draw_rect(color, x_center,   y_center-y, x, 1);
       if (drawint) {
-        bagl_hal_draw_rect(colorint, x_center,   y_center-y, x-1, 1);
+        bagl_hal_draw_rect(colorint, x_center,   y_center-y, x-dradius, 1);
       }
     }
     if (octants & 32) { // 
+      /*
       bagl_hal_draw_rect(color, x_center,   y_center-x, y, 1);
-      /*if (drawint && x < radius) {
+      if (drawint && x < radius) {
         bagl_hal_draw_rect(colorint, x_center,   y_center-x, y-1, 1);
-      }*/
+      }
+      */
+      bagl_hal_draw_rect(color, x_center+y, y_center-x, 1, radius-y);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center+y, y_center-x+dradius, 1, radius-y);
+      }
     }
     if (octants & 64) { // 
       bagl_hal_draw_rect(color, x_center-x, y_center-y, x, 1);
       if (drawint) {
-        bagl_hal_draw_rect(colorint, x_center-x+1, y_center-y, x-1, 1);
+        bagl_hal_draw_rect(colorint, x_center-x+dradius, y_center-y, x-dradius, 1);
       }
     }
     if (octants & 128) { //
+      /*
       bagl_hal_draw_rect(color, x_center-y, y_center-x, y, 1);
-      /*if (drawint && x < radius) {
+      if (drawint) {
         bagl_hal_draw_rect(colorint, x_center-y+1, y_center-x, y-1, 1);
-      }*/
+      }
+      */
+      bagl_hal_draw_rect(color, x_center-y, y_center-x, 1, radius-y);
+      if (drawint) {
+        bagl_hal_draw_rect(colorint, x_center-y, y_center-x+dradius, 1, radius-y);
+      }
     }
-
-    last_y = y;
-    last_x = x;
 
     y++;
     if (decisionOver2<=0)
@@ -359,28 +388,6 @@ void bagl_draw_circle_helper(unsigned int color, unsigned int x_center, unsigned
     {
       x--;
       decisionOver2 += 2 * (y - x) + 1;   // Change for y -> y+1, x -> x-1
-    }
-
-    if (octants & 2) { // 
-      if (drawint && last_x < radius && x != last_x) {
-        bagl_hal_draw_rect(colorint, x_center,   last_x+y_center, last_y-(y-last_y), 1);
-      }
-    }
-    if (octants & 8) { // 
-      if (drawint && last_x < radius && x != last_x) {
-        bagl_hal_draw_rect(colorint, x_center-last_y+1, last_x+y_center, last_y-(y-last_y), 1);
-      }
-    }
-    if (octants & 32) { // 
-      if (drawint && last_x < radius && x != last_x) {
-        bagl_hal_draw_rect(colorint, x_center,   y_center-last_x, last_y-(y-last_y), 1);
-      }
-    }
-
-    if (octants & 128) { //
-      if (drawint && last_x < radius && x != last_x) {
-        bagl_hal_draw_rect(colorint, x_center-last_y+1, y_center-last_x, last_y-(y-last_y), 1);
-      }
     }
   }
 }
