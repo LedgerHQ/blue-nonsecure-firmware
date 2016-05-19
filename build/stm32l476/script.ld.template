@@ -28,6 +28,7 @@ SECTIONS
   /****************************************************************/
   .text_bl :
   {
+    _signed = .;
     PROVIDE(_signed = .);
   } > FLASH_BL = 0xFF
 
@@ -105,16 +106,17 @@ SECTIONS
     . = ALIGN(16); 
     _edata = .;
 
-
     PROVIDE(_edata = .);
 
   } > SRAM AT>FLASH = 0x00
 
   .signature (NOLOAD) :
   {
+    _ecode = .;
     PROVIDE(_ecode = .);
 
     . = ALIGN(PAGE_SIZE); 
+    _eloadedtext = .;
     PROVIDE(_eloadedtext = .);
 
     /* Ensure to place signature at the end, aligned on an AES block */
@@ -126,10 +128,13 @@ SECTIONS
     /* all code placed */
     _eflash = .;
     PROVIDE(_eflash = .);
+    _esigned = _eflash;
     PROVIDE(_esigned = _eflash);
     /* symbol for srec_cat signature injection */
+    _signature = _eflash;
     PROVIDE(_signature = _eflash);
     /* reserve space for the signature*/
+    _esignature = _eflash + UNSEC_SIGNATURE_PADDED_MAX_LENGTH;
     PROVIDE(_esignature = _eflash + UNSEC_SIGNATURE_PADDED_MAX_LENGTH);
   } > FLASH
 

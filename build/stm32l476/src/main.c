@@ -59,6 +59,9 @@
 #define BACKLIGHT_FULL_LEVEL  70
 #define BACKLIGHT_DIM_LEVEL   20
 
+// can process usb in between display requests
+//#define ASYNCH_DISPLAY_PROCESSED_EVENT
+
 //#define DEMO_LOGO
 
 //#define TEST_KEYBOARD
@@ -113,6 +116,8 @@ volatile struct {
   unsigned int link_debug;
 #endif // DEBUG_BUTTON_LINK_DEBUG
   uint32_t boot_moment;
+
+  uint32_t next_event_ms;
 } G_io_button;
 
 #ifdef DEBUG_BUTTON_ALWAYS_PUSHED
@@ -132,7 +137,7 @@ volatile struct {
   #define BUTTON_PRESS_DURATION_BOOT_CTRL_BOOTLOADER 3000
   #define BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY     1500
   #define BUTTON_PRESS_DURATION_BOOT_POWER_ON         100
-  #define BUTTON_PRESS_DURATION_POWER_OFF            5000 // very long press to power off
+  #define BUTTON_PRESS_DURATION_POWER_OFF            2500 // very long press to power off
 
   #ifdef DEBUG_BUTTON_FLASHBACK
   #define BUTTON_PRESS_DURATION_BOOT_SE_FLASHBACK    4000
@@ -140,7 +145,7 @@ volatile struct {
 
   // the L4 button when pressed a long time switch to a verbose mode
   #ifdef DEBUG_BUTTON_LINK_DEBUG
-  #define BUTTON_PRESS_DURATION_LINK_DEBUG           (BUTTON_PRESS_DURATION_POWER_OFF-2000)
+  #define BUTTON_PRESS_DURATION_LINK_DEBUG           1500
   #endif //DEBUG_BUTTON_LINK_DEBUG
 
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
@@ -179,6 +184,10 @@ unsigned int G_seproxyhal_event_timeout_enable;
 unsigned int G_seproxyhal_event_timeout;
 unsigned char G_seproxyhal_event_timeout_header[3];
 
+
+void autopoweroff_reset(void) {
+  G_poweroff_ms = 0;
+}
 unsigned int backlight_level;
 unsigned int backlight_is_enabled(void) {
   #ifdef BACKLIGHT_AUTOOFF_MS
@@ -199,7 +208,7 @@ void backlight_enable(unsigned int enable) {
 #ifdef BACKLIGHT_AUTOOFF_MS
     // don't re-enable, to avoid too much delay (due to printf) and no glitch
     if (backlight_is_enabled() && G_backlight_autodim_ms < BACKLIGHT_AUTODIM_MS) {
-      G_poweroff_ms = 0;
+      autopoweroff_reset();
       G_backlight_autooff_ms = 0;
       G_backlight_autodim_ms = 0;
       if (backlight_level != BACKLIGHT_FULL_LEVEL) {
@@ -211,7 +220,7 @@ void backlight_enable(unsigned int enable) {
 
 #ifdef BACKLIGHT_AUTODIM_MS
     if (G_backlight_autodim_ms < BACKLIGHT_AUTODIM_MS) {
-      G_poweroff_ms = 0;
+      autopoweroff_reset();
       G_backlight_autooff_ms = 0;
       G_backlight_autodim_ms = 0;
       if (backlight_level != BACKLIGHT_FULL_LEVEL) {
@@ -224,7 +233,7 @@ void backlight_enable(unsigned int enable) {
     // DON'T CARE DIMING, REENABLE FULL
 
     // reenable backlight
-    G_poweroff_ms = 0;
+    autopoweroff_reset();
     G_backlight_autooff_ms = 0;
     G_backlight_autodim_ms = 0;
   full:
@@ -506,7 +515,15 @@ void SysTick_Handler(void)
   }
 
   if (G_io_button.pressed) {
+    // compute total press duration
     G_io_button.duration_ms += SYSTICK_MS;
+
+    // prepare to generate a new button event
+    G_io_button.next_event_ms += SYSTICK_MS;
+    if (G_io_button.next_event_ms >= SEPROXYHAL_TAG_BUTTON_PUSH_INTERVAL_MS) {
+      G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
+      G_io_button.next_event_ms = 0;
+    }
 
     if (G_io_button.displayed_mode & MODE_BOOT) {
       if (G_io_button.duration_ms > BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY && ! (G_io_button.displayed_mode & MODE_SE_RECOVERY)) {
@@ -640,10 +657,12 @@ void EXTI2_IRQHandler(void) {
   if (__HAL_GPIO_EXTI_GET_FLAG(GPIO_PIN_2)) {
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_2);
     if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_2)) {
-      G_io_button.pressed = 1;
       G_io_button.duration_ms = 0;
       G_io_button.displayed_mode = 0;
       G_io_button.boot_moment = 0; // not needed
+      G_io_button.pressed = 1;
+      G_io_button.next_event_ms = 0;
+      G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
 
       // ensure backlight is enabled
       backlight_enable(1);
@@ -665,6 +684,7 @@ void EXTI2_IRQHandler(void) {
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
       G_io_button.pressed = 0;
+      // G_io_button.next_event_ms = 0; // don't !! to avoid killing the interval computation with another button
       G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
     }
   }
@@ -675,7 +695,7 @@ void EXTI2_IRQHandler(void) {
   *
   *
   */
-void EXTI9_5_IRQHandler(void) {
+void BNRG_SPI_EXTI_IRQHandler(void) {
   // detect BLE request to read
   if (BNRG_SPI_EXTI_PORT->IDR & BNRG_SPI_EXTI_PIN) {
     //Hal_IRQ_Serial();
@@ -1642,6 +1662,7 @@ void main(unsigned int button_press_duration)
   G_io_button.displayed_mode = 0;
   G_io_button.pressed = 0;
   G_io_button.duration_ms = 0; 
+  G_io_ble.powered = 0;
 
   #ifdef DEBUG_BUTTON_LINK_DEBUG
   G_io_button.link_debug = 0;
@@ -1975,7 +1996,7 @@ reboot:
   // ATR for ST31 Ledger BL/BOLOS
   if (G_io_se_atr_length != 5) {   
 
-    const char recovery_name [] = {AD_TYPE_COMPLETE_LOCAL_NAME,'L','e','d','g','e','r',' ', 'B','l','u','e' /*,' ', 'B','o','o','t','l','o','a','d','e','r'*/, '\0'};
+    const char recovery_name [] = {AD_TYPE_COMPLETE_LOCAL_NAME,'L','e','d','g','e','r',' ', 'B','l','u','e', ' ','F','A','B','\0'};
     // request standard ISO apdu transport between the SE and the MCU instead of raw SPI packet (to save overhead)
     G_io_ble_apdu_protocol_enabled = 1;
 
@@ -1985,7 +2006,7 @@ reboot:
     BLE_power(1, recovery_name);
 
     HAL_Delay(500);
-    display_l4_mode("Ledger Blue", "MANUFACTURER MODE");
+    display_l4_mode("Ledger Blue FAB", "MANUFACTURER MODE");
 
     // ######### ENABLE USB TRANSPORT
     G_io_usb.bootloader = 1; // use the BL transport for apdu over usbhid
@@ -2001,8 +2022,6 @@ reboot:
 
     while(1) {
 
-      screen_update_touch_event();
-
       // stop ble upon disconnection
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_DISCONNECT) {
         G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BLE_DISCONNECT;
@@ -2011,16 +2030,17 @@ reboot:
         BLE_power(1, recovery_name);
       }
 
-      if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_TOUCH) {
-        G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_TOUCH;
-        PRINTF("TT. ");
-      }
-
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BUTTON) {
         G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BUTTON;
 
         // push event is not userful but for awakening
         backlight_enable(1);
+      }
+	  
+      screen_update_touch_event();
+      if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_TOUCH) {
+        G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_TOUCH;
+        PRINTF("TT. ");
       }
 
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_RELEASE) {
@@ -2095,7 +2115,6 @@ reboot:
   }
 
   // session start the SE
-  G_io_ble.powered = 0;
 
   G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_SESSION_START_EVENT;
   G_io_seproxyhal_buffer[1] = 0;
@@ -2252,6 +2271,17 @@ reboot:
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;            
           }
+          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE) {
+            // say ok to the SE
+            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_NOTIFY_INDICATE_EVENT;
+            G_io_seproxyhal_buffer[1] = 0;
+            G_io_seproxyhal_buffer[2] = 1;
+            G_io_seproxyhal_buffer[3] = G_io_ble.notify_indicate_char;
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
+            consumed_events = SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE;
+            G_io_seproxyhal_state = WAIT_COMMAND;
+            goto consume;
+          }
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_CONNECT) {
             PRINTF("BC. ");
             
@@ -2330,67 +2360,6 @@ reboot:
             goto consume;
           }
 
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BUTTON) {
-
-            // when button is clicked, don't send to the SE when the backlight was off, just awake
-            if (!backlight_is_enabled()) {
-              backlight_enable(1);
-            }
-            else {
-              G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BUTTON_PUSH_EVENT;
-              G_io_seproxyhal_buffer[1] = 0;
-              G_io_seproxyhal_buffer[2] = 1;
-              G_io_seproxyhal_buffer[3] = (G_io_button.duration_ms >= SEPROXYHAL_LONG_BUTTON_PUSH_MS)?1:0;
-              io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
-              G_io_seproxyhal_state = WAIT_COMMAND;
-            }
-            consumed_events = SEPROXYHAL_EVENT_BUTTON;
-            goto consume;
-          }
-
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_RELEASE) {
-            consumed_events = SEPROXYHAL_EVENT_RELEASE;
-           
-            // avoid clicking anywhere, user must use the button to awake from sleep
-            if (!backlight_is_enabled()) {
-              goto consume_nowakeup;
-            }
-
-            //PRINTF("TR. ");
-            x = G_io_touch.ts_last_x;
-            y = G_io_touch.ts_last_y;
-            G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_FINGER_EVENT_RELEASE;
-            // consume x&y to avoid multiple touch release (thanks SUPERB touchscreen impl)
-            G_io_touch.ts_last_x = -1;
-            G_io_touch.ts_last_y = -1;
-            goto send_finger_event;
-          }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_TOUCH) {
-            consumed_events = SEPROXYHAL_EVENT_TOUCH;
-           
-            // avoid clicking anywhere, user must use the button to awake from sleep
-            if (!backlight_is_enabled()) {
-              goto consume_nowakeup;
-            }
-
-            //PRINTF("TT. ");
-            x = G_io_touch.ts_last_x;
-            y = G_io_touch.ts_last_y;
-            G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_FINGER_EVENT_TOUCH;
-          send_finger_event:
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_FINGER_EVENT;
-            G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 5;
-            // [3] already set
-            G_io_seproxyhal_buffer[4] = x>>8;
-            G_io_seproxyhal_buffer[5] = x;
-            G_io_seproxyhal_buffer[6] = y>>8;
-            G_io_seproxyhal_buffer[7] = y;
-
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 8);
-            G_io_seproxyhal_state = WAIT_COMMAND;
-            goto consume;
-          }
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_USB_RESET) {
             //PRINTF("UR. ");
             consumed_events = SEPROXYHAL_EVENT_USB_RESET;
@@ -2520,6 +2489,69 @@ reboot:
             goto consume;
           }
 
+          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BUTTON) {
+
+            // when button is clicked, don't send to the SE when the backlight was off, just awake
+            if (!backlight_is_enabled()) {
+              backlight_enable(1);
+            }
+            else {
+              G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BUTTON_PUSH_EVENT;
+              G_io_seproxyhal_buffer[1] = 0;
+              G_io_seproxyhal_buffer[2] = 1;
+//              G_io_seproxyhal_buffer[3] = (G_io_button.duration_ms >= SEPROXYHAL_LONG_BUTTON_PUSH_MS)?1:0;
+              G_io_seproxyhal_buffer[3] = (G_io_button.pressed << 1); // send the pressed button mask
+              io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
+              G_io_seproxyhal_state = WAIT_COMMAND;
+            }
+            consumed_events = SEPROXYHAL_EVENT_BUTTON;
+            goto consume;
+          }
+
+          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_RELEASE) {
+            consumed_events = SEPROXYHAL_EVENT_RELEASE;
+           
+            // avoid clicking anywhere, user must use the button to awake from sleep
+            if (!backlight_is_enabled()) {
+              goto consume_nowakeup;
+            }
+
+            //PRINTF("TR. ");
+            x = G_io_touch.ts_last_x;
+            y = G_io_touch.ts_last_y;
+            G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_FINGER_EVENT_RELEASE;
+            // consume x&y to avoid multiple touch release (thanks SUPERB touchscreen impl)
+            G_io_touch.ts_last_x = -1;
+            G_io_touch.ts_last_y = -1;
+            goto send_finger_event;
+          }
+          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_TOUCH) {
+            consumed_events = SEPROXYHAL_EVENT_TOUCH;
+           
+            // avoid clicking anywhere, user must use the button to awake from sleep
+            if (!backlight_is_enabled()) {
+              goto consume_nowakeup;
+            }
+
+            //PRINTF("TT. ");
+            x = G_io_touch.ts_last_x;
+            y = G_io_touch.ts_last_y;
+            G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_FINGER_EVENT_TOUCH;
+          send_finger_event:
+            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_FINGER_EVENT;
+            G_io_seproxyhal_buffer[1] = 0;
+            G_io_seproxyhal_buffer[2] = 5;
+            // [3] already set
+            G_io_seproxyhal_buffer[4] = x>>8;
+            G_io_seproxyhal_buffer[5] = x;
+            G_io_seproxyhal_buffer[6] = y>>8;
+            G_io_seproxyhal_buffer[7] = y;
+
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 8);
+            G_io_seproxyhal_state = WAIT_COMMAND;
+            goto consume;
+          }
+
 #ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_DISPLAYED) {
             consumed_events = SEPROXYHAL_EVENT_DISPLAYED;
@@ -2609,14 +2641,12 @@ reboot:
               // will only return when data has been propagated. timeout => watchdog
               BLE_send(G_io_seproxyhal_ble_handles[G_io_seproxyhal_buffer[3]], &G_io_seproxyhal_buffer[6], l-3);
             }
+            G_io_ble.notify_indicate_char = G_io_seproxyhal_buffer[3];
 
-            // say ok to the SE
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_NOTIFY_INDICATE_EVENT;
-            G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 1;
-            // unchanged: G_io_seproxyhal_buffer[3] = G_io_seproxyhal_buffer[3];
-
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
+            __asm("cpsid i");
+            G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE;
+            __asm("cpsie i");
+            G_io_seproxyhal_state = WAIT_EVENT;
             // stay in command mode
             break;
           case SEPROXYHAL_TAG_SCREEN_POWER:
@@ -2689,8 +2719,9 @@ reboot:
               }
             }
             #ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
-            // ensure to 
-            G_io_seproxyhal_state |= SEPROXYHAL_EVENT_DISPLAYED;
+            __asm("cpsid i");
+            G_io_seproxyhal_events |= SEPROXYHAL_EVENT_DISPLAYED;
+            __asm("cpsie i");
             G_io_seproxyhal_state = WAIT_EVENT;
             #else // ASYNCH_DISPLAY_PROCESSED_EVENT
             // reply display processed event

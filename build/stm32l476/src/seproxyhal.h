@@ -30,7 +30,8 @@
 #define SEPROXYHAL_TAG_BLE_WRITE_REQUEST_EVENT     0x03
 #define SEPROXYHAL_TAG_BLE_READ_REQUEST_EVENT      0x04
 #define SEPROXYHAL_TAG_BUTTON_PUSH_EVENT           0x05
-#define SEPROXYHAL_LONG_BUTTON_PUSH_MS               1000
+#define SEPROXYHAL_TAG_BUTTON_PUSH_ID_MASK          0xFE // up to 7 physical buttons (bit is 1 when pressed, and 0 when released)
+#define SEPROXYHAL_TAG_BUTTON_PUSH_INTERVAL_MS       100 // an event generated every x ms
 #define SEPROXYHAL_TAG_NFC_FIELD_DETECTION_EVENT   0x06
 #define SEPROXYHAL_TAG_NFC_APDU_RECEIVED_EVENT     0x07
 #define SEPROXYHAL_TAG_BATTERY_NOTIFICATION_EVENT  0x08
@@ -131,6 +132,7 @@ extern volatile unsigned char G_io_ble_apdu_protocol_enabled;
 #define SEPROXYHAL_EVENT_DISPLAYED                    0x80000UL
 #define SEPROXYHAL_EVENT_UNSEC_CHUNK                 0x100000UL
 #define SEPROXYHAL_EVENT_SET_LINK_SPEED              0x200000UL
+#define SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE         0x400000UL
 
 
 extern volatile struct touch_state_s {
@@ -182,6 +184,8 @@ extern volatile struct ble_state_s {
   unsigned char last_write_buffer[512];
 
   unsigned char* last_discovered_name;
+
+  unsigned int notify_indicate_char;
 } G_io_ble;
 
 void BLE_accept_previous_write(void);

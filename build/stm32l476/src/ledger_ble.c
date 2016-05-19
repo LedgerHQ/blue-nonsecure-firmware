@@ -180,7 +180,6 @@ void BLE_power(unsigned char powered, const char* discovered_name) {
   if (G_io_ble.powered && powered) {
     return;
   }
-  G_io_ble.powered = powered;
 
   BLE_diversify_name_address();
   
@@ -194,6 +193,8 @@ void BLE_power(unsigned char powered, const char* discovered_name) {
   BNRG_SPI_MOSI_CLK_ENABLE();
   BNRG_SPI_CS_CLK_ENABLE();
   BNRG_SPI_IRQ_CLK_ENABLE();
+
+  G_io_ble.powered = powered;
   
   if (powered) {
     // wait a bit
@@ -247,33 +248,7 @@ void BLE_power(unsigned char powered, const char* discovered_name) {
     HAL_GPIO_Init(BNRG_SPI_CS_PORT, &GPIO_InitStruct);
     HAL_GPIO_WritePin(BNRG_SPI_CS_PORT, BNRG_SPI_CS_PIN, GPIO_PIN_SET);
 
-    /* IRQ -- OUTPUT => ! DFU MODE */
-    GPIO_InitStruct.Pin = BNRG_SPI_IRQ_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = BNRG_SPI_IRQ_PULL;
-    GPIO_InitStruct.Speed = BNRG_SPI_IRQ_SPEED;
-    GPIO_InitStruct.Alternate = 0;
-    HAL_GPIO_Init(BNRG_SPI_IRQ_PORT, &GPIO_InitStruct);
-    // make sure to let the bluenrg not in DFU mode
-    HAL_GPIO_WritePin(BNRG_SPI_IRQ_PORT, BNRG_SPI_IRQ_PIN, GPIO_PIN_RESET);
-    
-    /* Initialize the BlueNRG SPI driver */
-    BNRG_SPI_Init();
-
-    /* Reset BlueNRG hardware */
-    BlueNRG_RST();
-
-    /* MISO */
-    /*
-    GPIO_InitStruct.Pin = BNRG_SPI_MISO_PIN;
-    GPIO_InitStruct.Mode = BNRG_SPI_MISO_MODE;
-    GPIO_InitStruct.Pull = BNRG_SPI_MISO_PULL;
-    GPIO_InitStruct.Speed = BNRG_SPI_MISO_SPEED;
-    GPIO_InitStruct.Alternate = BNRG_SPI_MISO_ALTERNATE;
-    HAL_GPIO_Init(BNRG_SPI_MISO_PORT, &GPIO_InitStruct);
-    */
-
-    /* IRQ -- INPUT */
+    /* IRQ -- INPUT + PULLDOWN to avoid DFU mode */
     GPIO_InitStruct.Pin = BNRG_SPI_IRQ_PIN;
     GPIO_InitStruct.Mode = BNRG_SPI_IRQ_MODE;
     GPIO_InitStruct.Pull = BNRG_SPI_IRQ_PULL;
@@ -284,15 +259,19 @@ void BLE_power(unsigned char powered, const char* discovered_name) {
     /* Configure the NVIC for SPI */  
     // clear up interrupts
     NVIC_ClearPendingIRQ(BNRG_SPI_EXTI_IRQn);
-    HAL_NVIC_SetPriority(BNRG_SPI_EXTI_IRQn, 4, 0);    
+    NVIC_SetPriority(BNRG_SPI_EXTI_IRQn, 3);   
+
+    /* Initialize the BlueNRG SPI driver */
+    BNRG_SPI_Init();
+
+    /* Reset BlueNRG hardware */
+    BlueNRG_RST();
+
     HAL_NVIC_EnableIRQ(BNRG_SPI_EXTI_IRQn);
 
     // at least 3ms, and the irq must show up before sending the first command
     HAL_Delay(5);
 
-    // force a read
-    //while(HCI_Isr_read_packet() == 0);
-    
     // probably not a good idea to do this each at each startup
     ret = aci_hal_write_config_data(CONFIG_DATA_PUBADDR_OFFSET,
                                     CONFIG_DATA_PUBADDR_LEN,

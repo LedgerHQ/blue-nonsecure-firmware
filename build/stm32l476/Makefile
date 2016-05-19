@@ -95,7 +95,7 @@ DEFINES += UPGRADE_ADDRESS=$(UPGRADE_ADDRESS)
 ##############
 # Compiler #
 ##############
-CCPATH   := $(BOLOS_ENV)/gcc-arm-none-eabi-4_7-2013q2/bin/
+CCPATH   := $(BOLOS_ENV)/gcc-arm-none-eabi-5_3-2016q1/bin/
 TARGET   := arm-none-eabi-
 CC       := $(CCPATH)/$(TARGET)gcc
 CFLAGS   := -ggdb2 -Werror=int-to-pointer-cast -Wall -Wextra #-save-temps
