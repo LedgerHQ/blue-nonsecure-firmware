@@ -1977,7 +1977,11 @@ reboot:
 
   // default is BLE managed asynch by the SE
   G_io_ble_apdu_protocol_enabled = 0;
+#ifndef HAVE_TMP_U2F  
   BLE_power(0, NULL);
+#else  
+  BLE_power(0, NULL, 0);
+#endif  
   //KBD_power(0);
   // enable the UI
   //UI_led_power(0);
@@ -2003,7 +2007,11 @@ reboot:
     // ######### ENABLE BLE TRANSPORT
     // await for BLE connection to process APDU through ST ISO bootloader
     //BLE_power(0, recovery_name);
+#ifndef HAVE_TMP_U2F    
     BLE_power(1, recovery_name);
+#else    
+    BLE_power(1, recovery_name, PROFILE_LEDGER);
+#endif    
 
     HAL_Delay(500);
     display_l4_mode("Ledger Blue FAB", "MANUFACTURER MODE");
@@ -2025,9 +2033,14 @@ reboot:
       // stop ble upon disconnection
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_DISCONNECT) {
         G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BLE_DISCONNECT;
-
+        
+#ifndef HAVE_TMP_U2F    
         BLE_power(0, NULL);
         BLE_power(1, recovery_name);
+#else    
+        BLE_power(0, NULL, 0);
+        BLE_power(1, recovery_name, PROFILE_LEDGER);
+#endif    
       }
 
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BUTTON) {
@@ -2629,7 +2642,11 @@ reboot:
           case SEPROXYHAL_TAG_BLE_RADIO_POWER:
             PRINTF("BO. ");
             // turn BLE ON or OFF, use the last defined service. (make discoverable)
+#ifndef HAVE_TMP_U2F            
             BLE_power(G_io_seproxyhal_buffer[3]&0x2, NULL); // if not advertising, then don't turn on
+#else
+            BLE_power(G_io_seproxyhal_buffer[3]&0x2, NULL, (G_io_seproxyhal_buffer[2] > 1 ? G_io_seproxyhal_buffer[4] : PROFILE_LEDGER)); // if not advertising, then don't turn on
+#endif
             // set default handles
             memset(G_io_seproxyhal_ble_handles, 0, sizeof(G_io_seproxyhal_ble_handles));
             G_io_seproxyhal_ble_handles[1] = G_io_ble.tx_characteristic_handle ;

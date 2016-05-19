@@ -18,6 +18,13 @@
 #ifndef SEPROXYHAL_H
 #define SEPROXYHAL_H
 
+#ifdef HAVE_TMP_U2F
+
+#define PROFILE_LEDGER 0
+#define PROFILE_U2F 1
+
+#endif
+
 #define BLE_CMD_APDU 0x05
 #define BLE_CHUNK_LENGTH 20
 #define M24SR_CHUNK_LENGTH 0xF6
@@ -185,11 +192,24 @@ extern volatile struct ble_state_s {
 
   unsigned char* last_discovered_name;
 
+#ifdef HAVE_TMP_U2F
+
+  unsigned char current_profile;
+  unsigned short u2f_controlpointlength_handle, u2f_servicerevision_handle;
+  unsigned short dis_service_handle;
+  unsigned short dis_manufacturer_name_handle, dis_model_number_handle, dis_hw_rev_string_handle, dis_fw_rev_string_handle;
+
+#endif  
+
   unsigned int notify_indicate_char;
 } G_io_ble;
 
 void BLE_accept_previous_write(void);
+#ifndef HAVE_TMP_U2F
 void BLE_power(unsigned char powered, const char* discovered_name);
+#else
+void BLE_power(unsigned char powered, const char* discovered_name, unsigned char profile);
+#endif
 void BLE_send(unsigned short handle, uint8_t* data_buffer, uint8_t Nb_bytes);
 
 
