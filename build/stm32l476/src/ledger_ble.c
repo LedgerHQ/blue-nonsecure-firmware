@@ -58,21 +58,14 @@
 
 
 
+#ifdef HAVE_BLE_MCU
 /**
  * The server-peripheral mac : leet(Wallet-000002)
  * Little endian encoding
  */
 uint8_t SERVER_BDADDR[] = {0x02, 0x00, 0x00, 0xe7, 0x11, 0x3A};
 uint8_t DEFAULT_NAME[] = {AD_TYPE_COMPLETE_LOCAL_NAME, 'L','e','d','g', 'e', 'r', '(', 'X', 'X', 'X', 'X', 'X', 'X', 'X', 'X', ')', '\0'};
-#ifdef HAVE_TMP_U2F
-uint8_t DEFAULT_NAME_U2F[] = {AD_TYPE_COMPLETE_LOCAL_NAME, 'x',' ','U','2', 'F', '\0'};
-const uint8_t u2f_serviceUUIDList[] = {AD_TYPE_16_BIT_SERV_UUID, 0xfd,0xff};
-tBleStatus Add_U2F_Service(void);
-tBleStatus Add_DIS_Service(void);
-#endif
 
-
-void UI_keyboard_press(unsigned char key);
 
 /* ==========================================================================================
  * ==========================================================================================
@@ -105,47 +98,16 @@ void BLE_diversify_name_address() {
   memcpy(&SERVER_BDADDR[0], &uid, 4);
 }
 
-#ifdef HAVE_TMP_U2F
-
-void BLE_diversify_name_address_u2f() {
-  const char hexdigits[] = "0123456789ABCDEF";
-  uint32_t uid, uid1, uid2, uid3;
-  const char* UID = (char*)0x1FFF7590;
-  memcpy(&uid1, UID, 4);
-  memcpy(&uid2, UID + 4, 4);
-  memcpy(&uid3, UID + 8, 4);
-  uid = uid1 ^ uid2 ^ uid3;
-  memcpy(&SERVER_BDADDR[0], &uid, 4);
-}
-
-#endif
 
 void BLE_make_discoverable(const char* discovered_name) {
   unsigned char ret ;
-#ifdef HAVE_TMP_U2F
-  uint8_t serviceUUIDLen = 0;
-  uint8_t *serviceUUIDList = NULL;
-#endif  
 
   // make discoverable
   // TODO limit the time it is done, to go back to sleep in case timeout
  
- #ifndef HAVE_TMP_U2F 
   if (discovered_name == NULL) {
     discovered_name = DEFAULT_NAME;
   }
-#else
-  if (discovered_name == NULL) {    
-    if (G_io_ble.current_profile == PROFILE_U2F) {
-      discovered_name = DEFAULT_NAME_U2F;
-      serviceUUIDLen = sizeof(u2f_serviceUUIDList);
-      serviceUUIDList = u2f_serviceUUIDList;
-    }
-    else {
-      discovered_name = DEFAULT_NAME; 
-    }
-  }  
-#endif  
 
   G_io_ble.last_discovered_name = discovered_name;
   
@@ -191,7 +153,6 @@ void BLE_make_discoverable(const char* discovered_name) {
   Slave_Conn_Interval_Max
   */
 
-#ifndef HAVE_TMP_U2F
 
   ret = aci_gap_set_discoverable(ADV_IND, 
                                   // low power leverage
@@ -207,37 +168,14 @@ void BLE_make_discoverable(const char* discovered_name) {
     THROW(EXCEPTION);
   }
 
-#else
-
-  if (G_io_ble.current_profile == PROFILE_U2F) {
-  }
-    ret = aci_gap_set_discoverable(ADV_IND, 
-                                  // low power leverage
-                                  500 * 625/1000, 3000 * 625 / 1000, 
-                                  PUBLIC_ADDR, NO_WHITE_LIST_USE,
-                                  strlen(discovered_name), discovered_name, 
-#warning TODO, add service list as nicolas.bigot requested
-                                  serviceUUIDLen, serviceUUIDList, 
-                                  // low power leverage
-                                  6*1250/1000, 50*1250/1000); // (50) bigger than this it's far too long
-  if (ret) {
-    PRINTF("set discoverable failed.\n");
-    THROW(EXCEPTION);
-  }
-
-#endif  
   
   // TODO set a timeout to stop advertising (could be power off btw)
   
   //PRINTF("%d\n",ret);  
 }
+#endif // HAVE_BLE_MCU
 
-
-#ifndef HAVE_TMP_U2F
 void BLE_power(unsigned char powered, const char* discovered_name) {
-#else
-void BLE_power(unsigned char powered, const char* discovered_name, unsigned char profile) {
-#endif  
   GPIO_InitTypeDef GPIO_InitStruct;
   tBleStatus ret;
 
@@ -245,16 +183,9 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
     return;
   }
 
-#ifndef HAVE_TMP_U2F
+#ifdef HAVE_BLE_MCU
   BLE_diversify_name_address();
-#else
-  if (profile == PROFILE_U2F) {
-    BLE_diversify_name_address_u2f();
-  }
-  else {
-    BLE_diversify_name_address(); 
-  }  
-#endif  
+#endif //HAVE_BLE_MCU
   
   // reset ble state
   memset(&G_io_ble, 0, sizeof(G_io_ble));
@@ -273,8 +204,10 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
     // wait a bit
     //HAL_Delay(1000);
     
+  #ifdef HAVE_BLE_MCU
     /* Initialize the BlueNRG HCI */
     HCI_Init();
+  #endif // HAVE_BLE_MCU
     
     /* Enable SPI clock */
     BNRG_SPI_CLK_ENABLE();
@@ -345,6 +278,7 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
     // at least 3ms, and the irq must show up before sending the first command
     HAL_Delay(5);
 
+#ifdef HAVE_BLE_MCU
     // probably not a good idea to do this each at each startup
     ret = aci_hal_write_config_data(CONFIG_DATA_PUBADDR_OFFSET,
                                     CONFIG_DATA_PUBADDR_LEN,
@@ -372,7 +306,6 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
       THROW(EXCEPTION);
     }
       
-#ifndef HAVE_TMP_U2F      
     // limit exchanges and data security to limit power, moreover apdus are public (f)
     ret = aci_gap_set_auth_requirement(MITM_PROTECTION_NOT_REQUIRED,
                                       OOB_AUTH_DATA_ABSENT,
@@ -382,48 +315,13 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
                                       USE_FIXED_PIN_FOR_PAIRING,
                                       1337,
                                       NO_BONDING);
-#else
-    if (profile == PROFILE_U2F) {
-      ret = aci_gap_set_auth_requirement(MITM_PROTECTION_REQUIRED,
-                                      OOB_AUTH_DATA_ABSENT,
-                                      NULL,
-                                      7,
-                                      16,
-                                      USE_FIXED_PIN_FOR_PAIRING,
-                                      123456,
-                                      BONDING);
-    }
-    else {
-    ret = aci_gap_set_auth_requirement(MITM_PROTECTION_NOT_REQUIRED,
-                                      OOB_AUTH_DATA_ABSENT,
-                                      NULL,
-                                      7,
-                                      16,
-                                      USE_FIXED_PIN_FOR_PAIRING,
-                                      1337,
-                                      NO_BONDING);      
-    }    
-#endif    
     if (ret != BLE_STATUS_SUCCESS) {
       PRINTF("BLE Stack Initialized.\n");
       THROW(EXCEPTION);
     }
     
     //PRINTF("SERVER: BLE Stack Initialized\n");
-#ifndef HAVE_TMP_U2F    
     ret = Add_Sample_Service();
-#else
-    if (profile == PROFILE_U2F) {
-      ret = Add_U2F_Service();
-      if (ret == BLE_STATUS_SUCCESS) {
-        ret = Add_DIS_Service();
-      }
-    }
-    else {
-      ret = Add_Sample_Service();
-    }
-    G_io_ble.current_profile = profile;    
-#endif    
     
     if(ret != BLE_STATUS_SUCCESS) {
       PRINTF("Error while adding service.\n");
@@ -440,6 +338,7 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
     G_io_ble.apdu_available = 0;
   
     BLE_make_discoverable(discovered_name);
+#endif // HAVE_BLE_MCU
   }
   else {
     // disable the interrupt when performing 
@@ -487,6 +386,7 @@ void BLE_power(unsigned char powered, const char* discovered_name, unsigned char
   }
 }
 
+#ifdef HAVE_BLE_MCU
 #define COPY_UUID_128(uuid_struct, uuid_15, uuid_14, uuid_13, uuid_12, uuid_11, uuid_10, uuid_9, uuid_8, uuid_7, uuid_6, uuid_5, uuid_4, uuid_3, uuid_2, uuid_1, uuid_0) \
   do {\
         uuid_struct.uuid128[0] = uuid_0; uuid_struct.uuid128[1] = uuid_1; uuid_struct.uuid128[2] = uuid_2; uuid_struct.uuid128[3] = uuid_3; \
@@ -535,148 +435,6 @@ fail:
   return BLE_STATUS_ERROR ;
 }
 
-#ifdef HAVE_TMP_U2F
-
-const uint8_t u2f_service_uuid[2] =        {0xfd,0xff};
-const uint8_t u2f_charUuidTX[16] =         {0xbb,0x23,0xd6,0x7e,0xba,0xc9,0x2f,0xb4,0xee,0xec,0xaa,0xde,0xf2,0xff,0xd0,0xf1};
-const uint8_t u2f_charUuidRX[16] =         {0xbb,0x23,0xd6,0x7e,0xba,0xc9,0x2f,0xb4,0xee,0xec,0xaa,0xde,0xf1,0xff,0xd0,0xf1};
-const uint8_t u2f_controlPointLength[16] = {0xbb,0x23,0xd6,0x7e,0xba,0xc9,0x2f,0xb4,0xee,0xec,0xaa,0xde,0xf3,0xff,0xd0,0xf1};
-const uint8_t u2f_controlPointLength_value[2] = {0x00,0x14};
-const uint8_t u2f_serviceRevision[2] = {0x28,0x2a};
-const uint8_t u2f_serviceRevision_value[3] = "1.0";
-
-const uint8_t dis_service_uuid[2] = { 0x0a, 0x18 };
-const uint8_t dis_manufacturer_name[2] = { 0x29, 0x2a };
-const uint8_t dis_manufacturer_name_value[6] = "Ledger";
-const uint8_t dis_model_number[2] = { 0x24, 0x2a };
-const uint8_t dis_model_number_value[6] = "U2FAPP";
-const uint8_t dis_hw_rev_string[2] = { 0x27, 0x2a };
-const uint8_t dis_hw_rev_string_value[3] = "1.0";
-const uint8_t dis_fw_rev_string[2] = { 0x26, 0x2a };
-const uint8_t dis_fw_rev_string_value[3] = "1.0";
-
-tBleStatus Add_DIS_Service(void)
-{
-  tBleStatus ret;
-   
-  screen_printf("Add DIS\n"); 
-
-  ret = aci_gatt_add_serv(UUID_TYPE_16, dis_service_uuid, PRIMARY_SERVICE, 10, &G_io_ble.dis_service_handle); /* original is 9?? */
-  if (ret != BLE_STATUS_SUCCESS) goto fail;    
-
-  screen_printf("Service added\n");
-  
-  ret =  aci_gatt_add_char(G_io_ble.dis_service_handle, UUID_TYPE_16, dis_manufacturer_name, BLE_CHUNK_LENGTH_B, CHAR_PROP_READ/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_NONE, 0,
-                           16, 1, &G_io_ble.dis_manufacturer_name_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("manufacturer name added\n");
-
-  ret = aci_gatt_update_char_value(G_io_ble.dis_service_handle, G_io_ble.dis_manufacturer_name_handle, 0, sizeof(dis_manufacturer_name_value), dis_manufacturer_name_value);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("manufacturer name set\n");
-
-  ret =  aci_gatt_add_char(G_io_ble.dis_service_handle, UUID_TYPE_16, dis_model_number, BLE_CHUNK_LENGTH_B, CHAR_PROP_READ/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_NONE, 0,
-                           16, 1, &G_io_ble.dis_model_number_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("model number added\n");
-
-  ret = aci_gatt_update_char_value(G_io_ble.dis_service_handle, G_io_ble.dis_model_number_handle, 0, sizeof(dis_model_number_value), dis_model_number_value);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("model number set\n");
-
-  ret =  aci_gatt_add_char(G_io_ble.dis_service_handle, UUID_TYPE_16, dis_hw_rev_string, BLE_CHUNK_LENGTH_B, CHAR_PROP_READ/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_NONE, 0,
-                           16, 1, &G_io_ble.dis_hw_rev_string_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("hw rev string added\n");
-
-  ret = aci_gatt_update_char_value(G_io_ble.dis_service_handle, G_io_ble.dis_hw_rev_string_handle, 0, sizeof(dis_hw_rev_string_value), dis_hw_rev_string_value);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("hw rev string set\n");
-
-  ret =  aci_gatt_add_char(G_io_ble.dis_service_handle, UUID_TYPE_16, dis_fw_rev_string, BLE_CHUNK_LENGTH_B, CHAR_PROP_READ/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_NONE, 0,
-                           16, 1, &G_io_ble.dis_fw_rev_string_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("fw rev string added\n");
-
-  ret = aci_gatt_update_char_value(G_io_ble.dis_service_handle, G_io_ble.dis_fw_rev_string_handle, 0, sizeof(dis_fw_rev_string_value), dis_fw_rev_string_value);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("fw rev string set\n");
-
-  
-  return BLE_STATUS_SUCCESS;
-  
-fail:
-  screen_printf("Error while adding DIS Service.\n");
-  PRINTF("Error while adding DIS Service.\n");
-  return BLE_STATUS_ERROR ;
-}
-
-
-tBleStatus Add_U2F_Service(void)
-{
-  tBleStatus ret;
-   
-  screen_printf("Add U2F\n"); 
-
-  ret = aci_gatt_add_serv(UUID_TYPE_16, u2f_service_uuid, PRIMARY_SERVICE, 10, &G_io_ble.service_handle); /* original is 9?? */
-  if (ret != BLE_STATUS_SUCCESS) goto fail;    
-
-  screen_printf("Service added\n");
-  
-  ret =  aci_gatt_add_char(G_io_ble.service_handle, UUID_TYPE_128, u2f_charUuidTX, BLE_CHUNK_LENGTH_B, CHAR_PROP_NOTIFY, ATTR_PERMISSION_AUTHOR_READ | ATTR_PERMISSION_ENCRY_READ, 0,
-                           16, 1, &G_io_ble.tx_characteristic_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("Notify added\n");
-  
-  ret =  aci_gatt_add_char(G_io_ble.service_handle, UUID_TYPE_128, u2f_charUuidRX, BLE_CHUNK_LENGTH_B, CHAR_PROP_WRITE/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_AUTHOR_WRITE | ATTR_PERMISSION_ENCRY_WRITE, GATT_NOTIFY_WRITE_REQ_AND_WAIT_FOR_APPL_RESP,
-                           16, 1, &G_io_ble.rx_characteristic_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("Write added\n");
-
-  /* Additional U2F endpoints */
-
-  ret =  aci_gatt_add_char(G_io_ble.service_handle, UUID_TYPE_128, u2f_controlPointLength, BLE_CHUNK_LENGTH_B, CHAR_PROP_READ/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_AUTHOR_READ | ATTR_PERMISSION_ENCRY_READ, 0,
-                           16, 1, &G_io_ble.u2f_controlpointlength_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("controlpoint added\n");
-
-  ret = aci_gatt_update_char_value(G_io_ble.service_handle, G_io_ble.u2f_controlpointlength_handle, 0, sizeof(u2f_controlPointLength_value), u2f_controlPointLength_value);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("controlpoint set\n");
-
-  ret =  aci_gatt_add_char(G_io_ble.service_handle, UUID_TYPE_16, u2f_serviceRevision, BLE_CHUNK_LENGTH_B, CHAR_PROP_READ/*|CHAR_PROP_WRITE_WITHOUT_RESP*/, ATTR_PERMISSION_AUTHOR_READ | ATTR_PERMISSION_ENCRY_READ, 0,
-                           16, 1, &G_io_ble.u2f_servicerevision_handle);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("serviceRevision added\n");
-
-  ret = aci_gatt_update_char_value(G_io_ble.service_handle, G_io_ble.u2f_servicerevision_handle, 0, sizeof(u2f_serviceRevision_value), u2f_serviceRevision_value);
-  if (ret != BLE_STATUS_SUCCESS) goto fail;
-
-  screen_printf("serviceRevision set\n");
-  
-  //PRINTF("Sample Service added.\nTX Char Handle %04X, RX Char Handle %04X\n", G_io_ble.tx_characteristic_handle, G_io_ble.rx_characteristic_handle);
-  return BLE_STATUS_SUCCESS;
-  
-fail:
-  screen_printf("Error while adding U2F Service.\n");
-  PRINTF("Error while adding U2F Service.\n");
-  return BLE_STATUS_ERROR ;
-}
-
-#endif
 
 /**
  * @brief  This function is used to send data related to the sample service
@@ -1043,11 +801,7 @@ void BLE_reset_connection(void) {
 
   // TODO remove me
   //BEGIN
-#ifdef HAVE_TMP_U2F  
-  BLE_power(0, NULL, 0);
-#else
   BLE_power(0, NULL);
-#endif  
 //  HAL_Delay(500);
   
   // it's faster to reset the device to avoid problems (f)
@@ -1163,15 +917,7 @@ void HCI_Event_CB(void *pckt)
               G_io_ble.notification_reg_handle = evt->attr_handle;
               G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BLE_NOTIFIFICATION_REGISTER;
 
-              if (G_io_ble_apdu_protocol_enabled) {
-                /*
-                screen_printf("logic link ok\n");
-                screen_update();
-                */
-                
-                G_io_ble.client_link_established = TRUE;
-                // from here we can send response to the host, make sure this is done upon receiving of the first capdu block, else it's an error
-              }
+              G_io_ble.client_link_established = TRUE;
             }
             else if(evt->att_data[0] == 0x01 && evt->att_data[1] == 0) {
               G_io_ble.notification_unreg_handle = evt->attr_handle;
@@ -1187,39 +933,25 @@ void HCI_Event_CB(void *pckt)
 
           if(evt->attr_handle == G_io_ble.rx_characteristic_handle + 1){
 
-            if (G_io_ble_apdu_protocol_enabled) {
-              if (!G_io_ble.client_link_established) {
-                // either disconnected or not yet connected, cannot proceed
-                return;
-              }
-              // decapsulate BLE framing to reconstruct the command.
-              // command set : 
-              //  - reset
-              //  - DFU
-              //  - apdu transport (to deliver the SE, whom will afterwards drive the screen and request a pin code
-              BLE_protocol_recv(evt->data_length, evt->data);
-
-              // accept the write request
-              // Accept it before processing its data to avoid deadlock in spi access within attribute modified
-              aci_gatt_write_response( evt->conn_handle,
-                                       evt->attr_handle,
-                                       0, // accept the write
-                                       0, // no error
-                                       evt->data_length, // TODO must check it's the size of the chunk
-                                       evt->data);
+            if (!G_io_ble.client_link_established) {
+              // either disconnected or not yet connected, cannot proceed
+              return;
             }
-            else {
-              // have data ready for seproxy hal transport
-              G_io_ble.last_write_conn_handle = evt->conn_handle;
-              G_io_ble.last_write_attr_handle = evt->attr_handle;
-              G_io_ble.last_write_size = evt->data_length;
-              memmove(G_io_ble.last_write_buffer, evt->data, G_io_ble.last_write_size);
+            // decapsulate BLE framing to reconstruct the command.
+            // command set : 
+            //  - reset
+            //  - DFU
+            //  - apdu transport (to deliver the SE, whom will afterwards drive the screen and request a pin code
+            BLE_protocol_recv(evt->data_length, evt->data);
 
-
-
-              G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BLE_WRITE;
-              // the write response ack is perforemd async after SE replied
-            }
+            // accept the write request
+            // Accept it before processing its data to avoid deadlock in spi access within attribute modified
+            aci_gatt_write_response( evt->conn_handle,
+                                     evt->attr_handle,
+                                     0, // accept the write
+                                     0, // no error
+                                     evt->data_length, // TODO must check it's the size of the chunk
+                                     evt->data);
           }
         }
         break;
@@ -1227,6 +959,58 @@ void HCI_Event_CB(void *pckt)
     }
     break;
   }    
+}
+#endif // HAVE_BLE_MCU
+
+void BlueNRG_EXTI_Process(void)
+{
+  // read a new packet
+  G_io_ble.bluenrg_buffer_size = 0;
+
+  while(Is_SPI_EXTI() && G_io_ble.bluenrg_buffer_size == 0) {
+    //Clear_SPI_EXTI_Flag();
+
+    // avoid late IRQ lower of the bluenrg to overwrite the read packet
+    //if (!G_io_ble.bluenrg_buffer_size && ! (G_io_seproxyhal_events& SEPROXYHAL_EVENT_BLE_WRITE)) 
+    {
+      G_io_ble.bluenrg_buffer_size = BlueNRG_SPI_Read_All(G_io_ble.bluenrg_buffer, HCI_READ_PACKET_SIZE);
+    }
+
+    // ensure not receiving next packet before the current has been processed
+    Disable_SPI_IRQ();
+    // trigger hci process
+    SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+	
+    Clear_SPI_EXTI_Flag();
+  }
+}
+
+void BlueNRG_PENDSV_Process(void) {
+  if (G_io_ble.bluenrg_buffer_size && !( G_io_seproxyhal_events&SEPROXYHAL_EVENT_BLE_WRITE) ) {
+#ifdef HAVE_BLE_MCU
+    // local processing of the BLE protocol
+    if (G_io_apdu_protocol_enabled) {
+      HCI_recv_packet(G_io_ble.bluenrg_buffer, G_io_ble.bluenrg_buffer_size);
+      // consume packet
+      BlueNRG_Consumed();
+      HCI_Process();
+    }
+    else 
+#endif // HAVE_BLE_MCU
+    {
+      __asm volatile ("cpsid i");
+      G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BLE_WRITE;
+      __asm volatile ("cpsie i");
+    }
+  }
+}
+
+void BlueNRG_Consumed(void) {
+  G_io_ble.bluenrg_buffer_size = 0;
+  Enable_SPI_IRQ();
+
+  // in case multi packet are to be received, bluenrg doesn't regen a rising edge, pump the next packet
+  BlueNRG_EXTI_Process();
 }
 
 #endif // HAVE_BLE

@@ -22,6 +22,7 @@ UNSEC_SIGNATURE_PADDED_MAX_LENGTH = 72;
 
 SECTIONS
 {
+  ENTRY(Reset_Handler)
   
   /****************************************************************/
   /* This section locates the code in FLASH                       */

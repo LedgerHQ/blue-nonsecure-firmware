@@ -44,6 +44,11 @@
 /* Private variables ---------------------------------------------------------*/
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
+
+#define IO_HID_EP_LENGTH 64
+unsigned char G_io_hid_chunk[IO_HID_EP_LENGTH];
+
+
 //#define USB_LOCAL
 
 /* USER CODE BEGIN 0 */
@@ -150,31 +155,16 @@ void HAL_PCD_MspDeInit(PCD_HandleTypeDef* hpcd)
   * @retval None
   */
 
-extern void bootloader_erase_appconf(void);
 void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     USBD_LL_SetupStage(hpcd->pData, (uint8_t *)hpcd->Setup);
   }
   else {
-    /*
-    // hacky hax
-    if (hpcd->Setup[0]&0xFFFF == 0xB160) {
-      // jump failed (or loaded code returned) go to bootloader
-      bootloader_erase_appconf();
-
-      // ensure to reset the display of the bootloader prompt
-      NVIC_SystemReset();
-    }
-    */
-
+    __asm volatile ("cpsid i");
     // notify setup to the ST31
     G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_SETUP;
-    /* don't clear previous status notification
-    // clear ep transfer notification 
-    G_io_usb.ep_out &= ~1;
-    G_io_usb.ep_in &= ~1;
-    */
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -186,14 +176,16 @@ void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd)
   */
 void HAL_PCD_DataOutStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     USBD_LL_DataOutStage(hpcd->pData, epnum, hpcd->OUT_ep[epnum].xfer_buff);
   } 
   else {
+    __asm volatile ("cpsid i");
     G_io_usb.ep_out |= 1<<epnum;
     // buffer is set when preparing OUT
     G_io_usb.ep_out_len[epnum] = hpcd_USB_OTG_FS.OUT_ep[epnum].xfer_count;
     G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_XFER_OUT;
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -205,13 +197,15 @@ void HAL_PCD_DataOutStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
   */
 void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     USBD_LL_DataInStage(hpcd->pData, epnum, hpcd->IN_ep[epnum].xfer_buff);
   }
   else {
+    __asm volatile ("cpsid i");
     G_io_usb.ep_in |= 1<<epnum;
     G_io_usb.ep_in_len[epnum] = hpcd_USB_OTG_FS.IN_ep[epnum].xfer_count;
     G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_XFER_IN;
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -222,11 +216,13 @@ void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
   */
 void HAL_PCD_SOFCallback(PCD_HandleTypeDef *hpcd)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     USBD_LL_SOF(hpcd->pData);
   }
   else {
+    __asm volatile ("cpsid i");
     G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_SOF;
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -241,8 +237,10 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
   USBD_LL_SetSpeed(hpcd->pData, USBD_SPEED_FULL);  
   USBD_LL_Reset(hpcd->pData);
 
-  if (!G_io_usb.bootloader) {
+  if (!G_io_apdu_protocol_enabled) {
+    __asm volatile ("cpsid i");
     G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_RESET;
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -254,7 +252,7 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
   */
 void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     __HAL_PCD_GATE_PHYCLOCK(hpcd);
     /* Inform USB library that core enters in suspend Mode */
     USBD_LL_Suspend(hpcd->pData);
@@ -273,7 +271,9 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
       /* Set SLEEPDEEP bit and SleepOnExit of Cortex System Control Register */
       SCB->SCR |= (uint32_t)((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
     }
+    __asm volatile ("cpsid i");
     //G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_SUSPENDED;
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -285,7 +285,7 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
   */
 void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     __HAL_PCD_UNGATE_PHYCLOCK(hpcd);
     /* USER CODE BEGIN 3 */
     if (hpcd->Init.low_power_enable)
@@ -303,7 +303,9 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
       /* Reset SLEEPDEEP bit of Cortex System Control Register */
       SCB->SCR &= (uint32_t)~((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));    
     }
+    __asm volatile ("cpsid i");
     //G_io_seproxyhal_events |= SEPROXYHAL_EVENT_USB_RESUMED;
+    __asm volatile ("cpsie i");
   }
 }
 
@@ -315,7 +317,7 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
   */
 void HAL_PCD_ISOOUTIncompleteCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     USBD_LL_IsoOUTIncomplete(hpcd->pData, epnum);
   }
 }
@@ -328,7 +330,7 @@ void HAL_PCD_ISOOUTIncompleteCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
   */
 void HAL_PCD_ISOINIncompleteCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
 {
-  if (G_io_usb.bootloader) {
+  if (G_io_apdu_protocol_enabled) {
     USBD_LL_IsoINIncomplete(hpcd->pData, epnum);
   }
 }
@@ -374,7 +376,7 @@ USBD_StatusTypeDef  USBD_LL_Init (USBD_HandleTypeDef *pdev)
     pdev->pData = &hpcd_USB_OTG_FS;
     
     hpcd_USB_OTG_FS.Instance = USB_OTG_FS;
-    hpcd_USB_OTG_FS.Init.dev_endpoints = 7;
+    hpcd_USB_OTG_FS.Init.dev_endpoints = MAX_USB_BIDIR_ENDPOINTS;
     hpcd_USB_OTG_FS.Init.speed = PCD_SPEED_FULL;
     hpcd_USB_OTG_FS.Init.ep0_mps = DEP0CTL_MPS_64;
     hpcd_USB_OTG_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
@@ -439,17 +441,16 @@ USBD_StatusTypeDef  USBD_LL_OpenEP  (USBD_HandleTypeDef *pdev,
                                       uint8_t  ep_type,
                                       uint16_t ep_mps)
 {
-
-  HAL_PCD_EP_Open(pdev->pData, 
-                  ep_addr, 
-                  ep_mps, 
-                  ep_type);
-
   // ensure fifo is configured for this endpoint
   // DESIGN NOTE: USB endpoint must be configured in order else the allocation macro from st is pure trash.
   if (ep_mps >= 16*4 && (ep_addr & 0x80)) {
     HAL_PCD_SetTxFiFo(&hpcd_USB_OTG_FS, ep_addr&0x7F, ep_mps/4);
   }
+
+  HAL_PCD_EP_Open(pdev->pData, 
+                  ep_addr, 
+                  ep_mps, 
+                  ep_type);
   
   return USBD_OK; 
 }
@@ -689,8 +690,6 @@ USBD_StatusTypeDef USBD_LL_BatteryCharging(USBD_HandleTypeDef *pdev)
   }
 }
 
-#define IO_HID_EP_LENGTH 64
-
 #define CHANNEL_APDU 0
 #define CHANNEL_KEYBOARD 1
 #define CHANNEL_SPI 2
@@ -712,7 +711,6 @@ typedef unsigned short (*io_recv_t)(unsigned char* buffer, unsigned short maxlen
 
 
 extern volatile unsigned short G_io_apdu_length;
-unsigned char G_io_hid_chunk[IO_HID_EP_LENGTH];
 
 /**
  *  Ledger Protocol with FIDO injection
@@ -758,9 +756,10 @@ void io_usb_hid_init(void) {
 }
 
 io_usb_hid_receive_status_t io_usb_hid_receive (io_send_t sndfct, unsigned char* buffer, unsigned short l) {
+
   // avoid over/under flows
   memset(G_io_hid_chunk, 0, sizeof(G_io_hid_chunk));
-  memmove(G_io_hid_chunk, buffer, MIN(l, sizeof(G_io_hid_chunk)));
+  memcpy(G_io_hid_chunk, buffer, MIN(l, sizeof(G_io_hid_chunk)));
 
   // process the chunk content
   switch(G_io_hid_chunk[2]) {
@@ -792,7 +791,7 @@ io_usb_hid_receive_status_t io_usb_hid_receive (io_send_t sndfct, unsigned char*
         l = G_io_usb_hid_remaining_length;
       }
       // copy data
-      memmove(G_io_usb_hid_current_buffer, G_io_hid_chunk+7, l);
+      memcpy(G_io_usb_hid_current_buffer, G_io_hid_chunk+7, l);
     }
     else {
       // check for invalid length encoding (more data in chunk that announced in the total apdu)
@@ -802,7 +801,7 @@ io_usb_hid_receive_status_t io_usb_hid_receive (io_send_t sndfct, unsigned char*
 
       /// This is a following chunk
       // append content
-      memmove(G_io_usb_hid_current_buffer, G_io_hid_chunk+5, l);
+      memcpy(G_io_usb_hid_current_buffer, G_io_hid_chunk+5, l);
     }
     // factorize (f)
     G_io_usb_hid_current_buffer += l;
@@ -872,29 +871,32 @@ unsigned short io_usb_hid_exchange(io_send_t sndfct, unsigned short sndlength,
         l = ((sndlength>IO_HID_EP_LENGTH-7) ? IO_HID_EP_LENGTH-7 : sndlength);
         G_io_hid_chunk[5] = sndlength>>8;
         G_io_hid_chunk[6] = sndlength;
-        memmove(G_io_hid_chunk+7, G_io_usb_hid_current_buffer, l);
+        memcpy(G_io_hid_chunk+7, G_io_usb_hid_current_buffer, l);
         G_io_usb_hid_current_buffer += l;
         sndlength -= l;
         l += 7;
       }
       else {
         l = ((sndlength>IO_HID_EP_LENGTH-5) ? IO_HID_EP_LENGTH-5 : sndlength);
-        memmove(G_io_hid_chunk+5, G_io_usb_hid_current_buffer, l);
+        memcpy(G_io_hid_chunk+5, G_io_usb_hid_current_buffer, l);
         G_io_usb_hid_current_buffer += l;
         sndlength -= l;
         l += 5;
       }
       // prepare next chunk numbering
       G_io_usb_hid_sequence_number++;
-      // send the chunk
+
+      // this is the last chunk to be sent
+      if (!sndlength) {
+        // prepare for next apdu
+        io_usb_hid_init();     
+		G_io_apdu_length = 0;   
+      }
+
       // always pad :)
+      // send the chunk
       sndfct(G_io_hid_chunk, sizeof(G_io_hid_chunk));
     }
-
-    //G_io_apdu_length = 0;
-
-    // prepare for next apdu
-    io_usb_hid_init();
   }
 
   if (flags & IO_RESET_AFTER_REPLIED) {

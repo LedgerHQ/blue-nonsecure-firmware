@@ -51,6 +51,7 @@ typedef enum bagl_components_type_e_ {
   BAGL_LINE,
   BAGL_ICON,
   BAGL_CIRCLE,
+  BAGL_LABELINE, // label for which y coordinate is the baseline of the text, does not support vertical alignment
   BAGL_FLAG_TOUCHABLE = 0x80,
 } bagl_components_type_e;
 #define BAGL_TYPE_FLAGS_MASK 0x80
@@ -60,8 +61,8 @@ typedef enum bagl_components_type_e_ {
 typedef struct {
   bagl_components_type_e type;
   unsigned char userid;
-  unsigned short x;
-  unsigned short y;
+  short x; // allow for out of screen rendering
+  short y; // allow for out of screen rendering
   unsigned short width;
   unsigned short height;
   unsigned char stroke;
@@ -83,6 +84,13 @@ typedef struct {
 #define BAGL_FONT_ALIGNMENT_BOTTOM        0x1000
 #define BAGL_FONT_ALIGNMENT_MIDDLE        0x2000
 
+#define BAGL_STROKE_FLAG_ONESHOT 0x80
+
+// avgcharwidth: the average character width in pixel
+// stroke: contains the hold time at start and at end (flag oneshot + in x 100ms)
+// iconid: contains the horizontal scroll speed (in pixel/second)
+#define BAGL_LONGLABEL_TIME_MS(textlength,avgcharwidth,stroke,iconid) (2*(textlength*avgcharwidth)*1000/(iconid) + 2*(stroke & ~(BAGL_STROKE_FLAG_ONESHOT) )*100 )
+
 // -------------------------------------------------------------------------------------- 
 
 typedef struct {
@@ -101,7 +109,8 @@ extern const unsigned int C_glyph_count;
 typedef struct {
   unsigned char char_width;
   unsigned char bitmap_byte_count;
-  unsigned char const * bitmap;
+  //unsigned char const * bitmap;
+  unsigned short bitmap_offset;
 } bagl_font_character_t;
 
 typedef struct {
@@ -110,7 +119,8 @@ typedef struct {
   unsigned char char_kerning; // specific to the font
   unsigned short first_char;
   unsigned short last_char;
-  bagl_font_character_t const * characters;
+  const bagl_font_character_t const * characters;
+  unsigned char const * bitmap; // single bitmap for all chars of a font
 } bagl_font_t;
 
 #define BAGL_ENCODING_LATIN1 0
@@ -122,17 +132,15 @@ typedef enum {
   BAGL_FONT_OPEN_SANS_BOLD_21px,
   BAGL_FONT_OPEN_SANS_LIGHT_13px,
   BAGL_FONT_OPEN_SANS_LIGHT_14px,
-  BAGL_FONT_OPEN_SANS_LIGHT_16px,
   BAGL_FONT_OPEN_SANS_LIGHT_21px,
   BAGL_FONT_OPEN_SANS_SEMIBOLD_18px,
   BAGL_FONT_COMIC_SANS_MS_20px,
+  BAGL_FONT_OPEN_SANS_EXTRABOLD_11px, // validated on nano s
+  BAGL_FONT_OPEN_SANS_LIGHT_16px,     // validated on nano s
+  BAGL_FONT_OPEN_SANS_REGULAR_11px,   // validated on nano s
 
   BAGL_FONT_LAST // MUST ALWAYS BE THE LAST, FOR AUTOMATED INVALID VALUE CHECKS
 } bagl_font_id_e;
-
-// -------------------------------------------------------------------------------------- 
-
-#define BAGL_BUTTON_INNERSPACING 2
 
 // -------------------------------------------------------------------------------------- 
 
@@ -145,11 +153,35 @@ enum bagl_glyph_e {
   BAGL_GLYPH_ICON_GEARS_50,
   BAGL_GLYPH_ICON_CLEAR_16,
   BAGL_GLYPH_ICON_BACKSPACE_20,
+  BAGL_GLYPH_ICON_CHECK,
+  BAGL_GLYPH_ICON_CROSS,
+  BAGL_GLYPH_ICON_CHECK_BADGE,
+  BAGL_GLYPH_ICON_LEFT,
+  BAGL_GLYPH_ICON_RIGHT,
+  BAGL_GLYPH_ICON_UP,
+  BAGL_GLYPH_ICON_DOWN,
+  BAGL_GLYPH_LOGO_LEDGER_MINI,
+  BAGL_GLYPH_ICON_CROSS_BADGE,
+  BAGL_GLYPH_ICON_DASHBOARD_BADGE,
+  BAGL_GLYPH_ICON_PLUS,
+  BAGL_GLYPH_ICON_LESS,
+  BAGL_GLYPH_ICON_TOGGLE_ON,
+  BAGL_GLYPH_ICON_TOGGLE_OFF,
+  BAGL_GLYPH_ICON_LOADING_BADGE,
+  BAGL_GLYPH_ICON_COG_BADGE,
+  BAGL_GLYPH_ICON_WARNING_BADGE,
+  BAGL_GLYPH_ICON_DOWNLOAD_BADGE,
+  BAGL_GLYPH_ICON_TRANSACTION_BADGE,
+  BAGL_GLYPH_ICON_BITCOIN_BADGE,
+  BAGL_GLYPH_ICON_ETHEREUM_BADGE,
+  BAGL_GLYPH_ICON_EYE_BADGE,
+  BAGL_GLYPH_ICON_PEOPLE_BADGE,
+  BAGL_GLYPH_ICON_LOCK_BADGE,
 };
 
 // -------------------------------------------------------------------------------------- 
 // return y<<16+x after string have been printed
-int bagl_draw_string(unsigned short font_id, unsigned int color1, unsigned int color0, unsigned short x, unsigned short y, unsigned short width, unsigned short height, void* text, unsigned short text_length, unsigned char text_encoding);
+int bagl_draw_string(unsigned short font_id, unsigned int color1, unsigned int color0, int x, int y, unsigned int width, unsigned int height, void* text, unsigned int text_length, unsigned char text_encoding);
 void bagl_draw_bg(unsigned int color);
 void bagl_draw_with_context(bagl_component_t* component, void* text, unsigned short text_length, unsigned char text_encoding);
 void bagl_draw(bagl_component_t* component);
@@ -160,11 +192,29 @@ void bagl_draw(bagl_component_t* component);
 // for user to setup the glyph matrix to be used
 void bagl_set_glyph_array(const bagl_glyph_array_entry_t* array, unsigned int count);
 
+typedef struct bagl_animated_s {
+  // the component to be animated
+  // NOTE: icon_id holds the horizontal scroll speed
+  // NOTE: stroke holds the pause time (unit is 100ms) when reaching each ends of the content to scroll.
+  bagl_component_t c;
+  
+  // the component context to be animated
+  void * text;
+  unsigned short text_length;
+  unsigned char text_encoding;
+  unsigned int current_char_idx;
+  unsigned int current_x;
+  unsigned int next_ms; // the next time checkpoint to perform an animation
+} bagl_animated_t; 
+
+// perform step animation
+void bagl_animate(bagl_animated_t* anim, unsigned int timestamp_ms, unsigned int interval_ms);
+
 // -------------------------------------------------------------------------------------- 
-void bagl_hal_draw_bitmap_within_rect(unsigned short x, unsigned short y, unsigned short width, unsigned short height, unsigned int color_count, unsigned int * colors, unsigned int bit_per_pixel, unsigned char* bitmap2, unsigned int bitmap_length_bits);
+void bagl_hal_draw_bitmap_within_rect(int x, int y, unsigned int width, unsigned int height, unsigned int color_count, unsigned int * colors, unsigned int bit_per_pixel, unsigned char* bitmap2, unsigned int bitmap_length_bits);
 void bagl_hal_draw_bitmap_continue(unsigned int bit_per_pixel, unsigned char* bitmap, unsigned int bitmap_length_bits);
 
-void bagl_hal_draw_rect(unsigned int color, unsigned short x, unsigned short y, unsigned short width, unsigned short height);
+void bagl_hal_draw_rect(unsigned int color, int x, int y, unsigned int width, unsigned int height);
 void bagl_action(bagl_component_t* component, unsigned char event_kind);
 
 // -------------------------------------------------------------------------------------- 

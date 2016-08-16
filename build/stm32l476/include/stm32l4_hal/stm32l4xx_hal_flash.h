@@ -670,6 +670,8 @@ typedef struct
 /** @addtogroup FLASH_Exported_Functions_Group1
   * @{
   */
+HAL_StatusTypeDef FLASH_WaitForLastOperation(uint32_t Timeout);
+void FLASH_Program_Fast(uint32_t Address, uint32_t DataAddress);
 HAL_StatusTypeDef  HAL_FLASH_Program(uint32_t TypeProgram, uint32_t Address, uint64_t Data);
 HAL_StatusTypeDef  HAL_FLASH_Program_IT(uint32_t TypeProgram, uint32_t Address, uint64_t Data);
 /* FLASH IRQ handler method */

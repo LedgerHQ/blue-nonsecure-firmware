@@ -29,6 +29,9 @@
  
 void* Osal_MemCpy(void *dest,const void *src,unsigned int size)
 {
+		if (src == NULL) {
+			return memset(dest, 0, size);
+		}
     return(memcpy(dest,src,size)); 
 }
 

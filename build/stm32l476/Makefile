@@ -34,8 +34,15 @@ SHELL =       /bin/bash
 DATE        := $(shell date "+%d %B %G")
 
 #VERSION     := $(shell date "+%Y%m%d")
-VERSION     := 1.1
+VERSION     := 1.2
 UPGRADE_ADDRESS := $(shell cat debug/stm32l476_bootloader.map | grep "_eloadedtext" | grep 0x | tr -s ' '| cut -f2 -d' ')
+
+
+BOOTLOADER = .
+BL_BS_NVRAM  :=$(shell cat $(BOOTLOADER)/debug/stm32l476_bootloader.map | grep "N_bootloader_configuration" | grep 0x | tr -s ' '| cut -f2 -d' ' |head -n1)
+
+BOOTADDR = $$((`cat debug/stm32l476_seproxyhal.map | grep "          Reset_Handler$$" | grep 0x | tr -s ' '| cut -f2 -d' '` | 1 ))
+
 
 $(info Building version: $(VERSION))
 
@@ -50,9 +57,9 @@ endif
 CONFIG_PRODUCTIONS := bin/$(PROG)
 
 
-SOURCE_PATH   := src/ ../../bagl/src
+SOURCE_PATH   := src/ ../../bagl/src ../../seproxyhal/src
 SOURCE_FILES  := $(foreach path, $(SOURCE_PATH),$(shell find $(path) | grep "\.c$$") )
-INCLUDES_PATH := ../../bagl/include include/ include/stm32l4_hal $(dir $(foreach path, $(SOURCE_PATH),$(shell find $(path) | grep "\.h$$") ))
+INCLUDES_PATH := ../../bagl/include ../../seproxyhal/include include/ include/stm32l4_hal $(dir $(foreach path, $(SOURCE_PATH),$(shell find $(path) | grep "\.h$$") ))
 
 DEFINES += STM32L476xx USE_STM32L4XX_NUCLEO USE_HAL_DRIVER gcc __IO=volatile
 
@@ -65,28 +72,26 @@ DEFINES += FREQUENCY_HZ=64000000
 # NOTE: 
 DEFINES += HAVE_PT035HV 
 DEFINES += HAVE_BAGL BAGL_WIDTH=320 BAGL_HEIGHT=480 #BAGL_COMPONENT_MAXCOUNT=32
+DEFINES += HAVE_TOUCHPANEL
 
-# for bluenrg interface weirdness debug
-DEFINES += HAVE_SPI_DEBUG
+DEFINES += HAVE_SE
+
+DEFINES += HAVE_USB HAVE_USBL4 MAX_USB_BIDIR_ENDPOINTS=6 MAX_USB_ENDPOINT_SIZE=64
+
 # have bluenrg command timeout 
 DEFINES += BLE_CMD_TIMEOUT
 # use the SPBTLE-RF with the MS stack
-DEFINES += BLUENRG_MS
+DEFINES += BLUENRG_MS HCI_READ_PACKET_NUM_MAX=4 
 
-DEFINES += HAVE_SE
 DEFINES += HAVE_BLE
-# Remove once the BLE transport is split
-DEFINES += HAVE_TMP_U2F
-DEFINES += HAVE_BAGL_FONT_LUCIDA_CONSOLE_8 HAVE_BAGL_FONT_OPEN_SANS_BOLD_13 HAVE_BAGL_FONT_OPEN_SANS_BOLD_21 HAVE_BAGL_FONT_OPEN_SANS_LIGHT_13 HAVE_BAGL_FONT_OPEN_SANS_LIGHT_14 HAVE_BAGL_FONT_OPEN_SANS_LIGHT_16 HAVE_BAGL_FONT_OPEN_SANS_LIGHT_21 HAVE_BAGL_FONT_OPEN_SANS_LIGHT_18 
+DEFINES += HAVE_BAGL_FONT_LUCIDA_CONSOLE_8PX HAVE_BAGL_FONT_OPEN_SANS_BOLD_13PX HAVE_BAGL_FONT_OPEN_SANS_BOLD_21PX HAVE_BAGL_FONT_OPEN_SANS_LIGHT_13PX HAVE_BAGL_FONT_OPEN_SANS_LIGHT_14PX HAVE_BAGL_FONT_OPEN_SANS_LIGHT_16PX HAVE_BAGL_FONT_OPEN_SANS_LIGHT_21PX HAVE_BAGL_FONT_OPEN_SANS_LIGHT_18PX 
 DEFINES += HAVE_BAGL_GLYPH_LOGO_LEDGER HAVE_BAGL_GLYPH_LOGO_LEDGER_BLUE HAVE_BAGL_GLYPH_LOGO_BOOTLOADER HAVE_BAGL_GLYPH_ICON_CLEAR HAVE_BAGL_GLYPH_ICON_BACKSPACE
 
-
-DEFINES += BACKLIGHT_AUTODIM_MS=\(1000*20\) 
+# output the data over the SE iso link
+DEFINES += DEBUG_BUTTON_LINK_DEBUG DEBUG_BUTTON_LINK_DEBUG_INITIAL=1
 
 # blue final
-DEFINES += WATCHDOG_POWEROFF_MS=\(10*1000*60\) BACKLIGHT_AUTOOFF_MS=\(1000*30\) HAVE_PT035HV_ROTATION_180
-# output the data over the SE iso link
-DEFINES += DEBUG_BUTTON_LINK_DEBUG
+DEFINES += WATCHDOG_POWEROFF_MS=\(10*1000*60\) BACKLIGHT_AUTOOFF_MS=\(1000*30\) BACKLIGHT_AUTODIM_MS=\(1000*20\) HAVE_PT035HV_ROTATION_180
 
 #DEFINES += PRINTF\(...\)='screen_printf(__VA_ARGS__)'
 DEFINES += PRINTF\(...\)
@@ -129,7 +134,7 @@ DEPEND_FILES := $(sort $(addprefix dep/, $(addsuffix .d, $(basename $(notdir $(S
 -include $(DEPEND_FILES)
 
 clean:
-	rm -fr obj bin debug dep script.ld
+	rm -fr obj bin debug dep 
 
 prepare:
 	@mkdir -p bin obj debug dep
@@ -140,6 +145,12 @@ prepare:
 log = $(if $(strip $(VERBOSE)),$1,@$1)
 
 default: prepare bin/$(PROG)
+
+makefiles-depends: Makefile
+
+script.ld: script.ld.template $(BOOTLOADER)/bin/stm32l476_bootloader.hex makefiles-depends
+	$(call log,python preprocess.py $(addprefix -D,$(DEFINES)) -d -s script.ld.template > script.ld)
+
 
 bin/$(PROG): $(OBJECT_FILES) script.ld.template Makefile
 	@echo "[LINK] 	$@"

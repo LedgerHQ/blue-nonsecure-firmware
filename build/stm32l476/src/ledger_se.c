@@ -43,58 +43,8 @@ extern volatile unsigned char G_io_se_powered;
 extern unsigned char G_io_apdu_buffer[260];
 extern unsigned short G_io_apdu_length;
 
-#ifndef USE_USART_DMA
-unsigned int G_io_se_discard_rx;
-#endif
-
-void SE_iso_disable_rx(void) {
-#ifdef USE_USART_DMA
-  DMA1_Channel5->CCR &= ~DMA_CCR_EN;
-#else
-  G_io_se_usart.Instance->CR1 &= ~USART_CR1_UE;
-  G_io_se_usart.Instance->CR1 = (G_io_se_usart.Instance->CR1&(~USART_CR1_RE))|USART_CR1_UE;
-  //G_io_se_discard_rx = 1;
-#endif
-}
-
-void SE_iso_enable_rx(void) {
-  // consume overrun byte if any
-  volatile unsigned char c = G_io_se_usart.Instance->RDR;
-#ifdef USE_USART_DMA
-  DMA1_Channel5->CCR |= DMA_CCR_EN;
-#else
-  G_io_se_usart.Instance->CR1 &= ~USART_CR1_UE;
-  G_io_se_usart.Instance->CR1 |= USART_CR1_RE|USART_CR1_UE;
-  //G_io_se_discard_rx = 0;
-#endif
-}
-
 // =========================================================================================
 // ISO7816
-
-// interrupt method for usart reply of the SE
-#ifdef USARTINT
-void SE_usart_interrupt(unsigned char c) {
-  // until L field is received (offset == 0, construct the )
-  switch(G_io_se_apdu_transport_offset) {
-    case 0:
-      G_io_se_apdu_transport_remlen = c;
-      break;
-    case 1:
-      // compute transport remaining length
-      G_io_se_apdu_transport_remlen = (G_io_se_apdu_transport_remlen<<8) | c&0xFF;
-      // compute apdu length
-      G_io_apdu_length = G_io_se_apdu_transport_remlen;
-      break;
-    default:
-      G_io_apdu_buffer[G_io_se_apdu_transport_offset-2]=c;
-      G_io_se_apdu_transport_remlen--;
-      break;
-  }
-  G_io_se_apdu_transport_offset++;
-}
-
-#endif // USARTINT
 
 //#define SE_PWR(x) BB_OUT(GPIOC,10 /*PC10*/, x)
 #define SE_RST(x) BB_OUT(GPIOC,12 /*PC12*/, x)
@@ -157,34 +107,22 @@ void SE_set_link_speed(unsigned int mhz, unsigned int etu) {
   __HAL_USART_ENABLE(&G_io_se_usart); 
 }
 
-#ifndef USE_USART_DMA
 volatile unsigned int G_io_se_offset_write;
 volatile unsigned int G_io_se_length;
 volatile unsigned int G_io_se_offset_read;
-#else
-volatile unsigned int G_io_se_last_cndtr;
-#endif // 
 volatile unsigned char G_io_se_buffer[300];
 
-#ifndef USE_USART_DMA
 void USART1_IRQHandler(void) {
   // mark isr as serviced
   NVIC_ClearPendingIRQ(USART1_IRQn);
 
-  // clear rx flags.
-  G_io_se_usart.Instance->ICR = ~USART_ISR_RXNE;
-
   while (G_io_se_usart.Instance->ISR & USART_ISR_RXNE) {
 
     // clear rx flags.
-    G_io_se_usart.Instance->ICR = USART_ISR_RXNE;
+    G_io_se_usart.Instance->ICR = 0xFFFFFFFF;
     
     // store the byte
-    if (
-  #ifndef USE_USART_DMA
-        !G_io_se_discard_rx && 
-  #endif
-        G_io_se_length < sizeof(G_io_se_buffer)) {
+    if (G_io_se_length < sizeof(G_io_se_buffer)) {
 
       // DEBUG toggle on data
   //    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, !HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_5));
@@ -199,15 +137,9 @@ void USART1_IRQHandler(void) {
     }
   }
 }
-#endif // USE_USART_DMA
 
 unsigned short io_seproxyhal_rx_available(void) {
-
-  #ifdef USE_USART_DMA
-  return ((sizeof(G_io_se_buffer)-DMA1_Channel5->CNDTR) + sizeof(G_io_se_buffer) - G_io_se_last_cndtr) % (sizeof(G_io_se_buffer));
-  #else
   return G_io_se_length;
-  #endif // USE_USART_DMA
 }
 
 #define NO_TIMEOUT (-1UL)
@@ -215,23 +147,8 @@ void SE_iso_recv(unsigned char* buffer, unsigned short length, unsigned int time
   // well, too bad for wrongly formatted packets length = ((G_io_se_length)<(length))?G_io_se_length:length;
   while(length--) {
     // wait for a byte
-    #ifdef USE_USART_DMA
-    while(DMA1_Channel5->CNDTR == G_io_se_last_cndtr && ( (timeout== -1) || --timeout ));
-    if (timeout == 0) {
-      return 0;
-    }
-    // compute next value (avoid )
-    G_io_se_last_cndtr = (G_io_se_last_cndtr-1)%sizeof(G_io_se_buffer);
-
-    *buffer++ = G_io_se_buffer[sizeof(G_io_se_buffer)-G_io_se_last_cndtr-1];
-
-    // reset the cndtr for next read (consider autoreload of the DMA register)
-    if (G_io_se_last_cndtr==0) {
-      G_io_se_last_cndtr=sizeof(G_io_se_buffer);
-    }
-    #else
     // TODO low power
-    while(G_io_se_length == 0 && ( (timeout== -1) || --timeout ));
+    while(G_io_se_length == 0 && ( (timeout== NO_TIMEOUT) || --timeout ));
     if (timeout == 0) {
       return 0;
     }
@@ -241,8 +158,6 @@ void SE_iso_recv(unsigned char* buffer, unsigned short length, unsigned int time
 
     *buffer++ = G_io_se_buffer[G_io_se_offset_read];
     G_io_se_offset_read = (G_io_se_offset_read+1)%sizeof(G_io_se_buffer);
-    #endif // USE_USART_DMA
-
   }
 
   return 1;
@@ -265,37 +180,30 @@ void SE_iso_send(unsigned char* buffer, unsigned short length) {
 
   //screen_printf("%.*H ", length, buffer);
 
-  //HAL_NVIC_DisableIRQ(USART1_IRQn);
   
   // avoid killing RE if no byte to be sent
   if (length) {
-    SE_iso_disable_rx();
+    HAL_NVIC_DisableIRQ(USART1_IRQn);
     
     while(length--) {
       while(!(G_io_se_usart.Instance->ISR & USART_FLAG_TXE));
       G_io_se_usart.Instance->TDR = *buffer++;
-      /*
+      
+
       // read the sent byte
       while(!(G_io_se_usart.Instance->ISR & USART_FLAG_RXNE));
-      volatile unsigned char c = G_io_se_usart.Instance->TDR;
-      NVIC_ClearPendingIRQ(USART1_IRQn);
-      G_io_se_usart.Instance->ICR = 0xFFFFFFFF;
-      HAL_NVIC_EnableIRQ(USART1_IRQn);
-      */
+      volatile unsigned char c = G_io_se_usart.Instance->RDR;
     }
 
+    /*
     // this trick avoid to wait for guard time on last param, 
     // and be sure to receive the first character coming from 
     // the SE, even after 2 stop bits.
     while(!(G_io_se_usart.Instance->ISR & USART_FLAG_TC));
+    */
 
-    SE_iso_enable_rx();
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
   }
-
-#ifdef USE_USART_DMA
-  G_io_se_last_cndtr = (sizeof(G_io_se_buffer)+G_io_se_last_cndtr-length)%sizeof(G_io_se_buffer);
-#endif // USE_USART_DMA
-
 }
 
 void io_seproxyhal_send(unsigned char* buffer, unsigned short length) {
@@ -430,7 +338,7 @@ unsigned char SE_iso_power_up(unsigned char force_ta1) {
     SE_update_baudrate(TA1);
   }
 #ifdef SC_PPS_SUPPORT
-  else if ((TA1 != 0x11 && TA1 != 0) || force_ta1) {
+  else if ((TA1 != 0x11 && TA1 != 0) || (TA != 11 && force_ta1)) {
 
     // use the higher etu in case requested (baudrate is not baudrate but ETU)
     if (SE_baudrate_ETU(force_ta1) > SE_baudrate_ETU(TA1)) {
@@ -506,7 +414,7 @@ unsigned char SE_iso_power(unsigned char powered) {
     GPIO_InitStruct.Pin = GPIO_PIN_9;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP; // use PP to lower the rise effect and the need for a strong pull with ETU16/8
     GPIO_InitStruct.Pull  = GPIO_PULLUP;
-    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    //GPIO_InitStruct.Pull  = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     
     // DESIGN NOTE: all A output bits are low at startup to avoid extra boots
@@ -516,6 +424,7 @@ unsigned char SE_iso_power(unsigned char powered) {
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull  = GPIO_PULLDOWN;
     GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
+    GPIO_InitStruct.Alternate = 0;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
     
     //SE_PWR(0);
@@ -551,44 +460,20 @@ unsigned char SE_iso_power(unsigned char powered) {
     
     // depending on the clock source (usb enabled or not) the gtpr prescaler must be set to avoid overclocking
     // OK MSI // G_io_se_usart.Instance->GTPR = 1; // divide clock by 2 with no guard time value // 5 -> ck = 3.2mhz
-    //G_io_se_usart.Instance->GTPR = 3; // /6 
-    //G_io_se_usart.Instance->GTPR = 2; // /4  4mhz
-    //G_io_se_usart.Instance->GTPR = 1; // /2  8mhz // OK 
-    G_io_se_usart.Instance->GTPR = 2; // SYSCLK/4  // OK ETU8
+    //G_io_se_usart.Instance->GTPR = 3; // SYSCLK/6  8mhz ok without pushpull se side, AF_PP mcu side
+    G_io_se_usart.Instance->GTPR = 2; // SYSCLK/4  12mhz// OK ETU8 ETU4 with pushpull
     //G_io_se_usart.Instance->GTPR = 2; // /4  15mhz // OK ETU8 (even if out of spec)
     //G_io_se_usart.Instance->GTPR = 1; // /2  20mhz // FEIL ETU32
 
 
-#ifdef USE_USART_DMA
-    __DMA1_CLK_ENABLE();
 
-    // channel 5 map onto USART1_RX
-    DMA1_CSELR->CSELR |= DMA_REQUEST_2 << 16;
-
-    G_io_se_usart.Instance->CR3 |= USART_CR3_DMAR;
-
-    DMA1_Channel5->CCR = DMA_CCR_MINC | DMA_CCR_CIRC | DMA_CCR_PL_1;
-    // transfer at most size of SE buffer
-    DMA1_Channel5->CNDTR = sizeof(G_io_se_buffer);
-    // from RX
-    DMA1_Channel5->CPAR = &USART1->RDR;
-    // to buffer
-    DMA1_Channel5->CMAR = G_io_se_buffer;
-
-    // enable dma
-    DMA1_Channel5->CCR |= DMA_CCR_EN;
-
-    G_io_se_last_cndtr = sizeof(G_io_se_buffer);
-#else
     // setup interrupt upon reception
     __HAL_USART_ENABLE_IT(&G_io_se_usart, USART_IT_RXNE);
     
     // setup interruption for usart
     HAL_NVIC_EnableIRQ(USART1_IRQn);
 
-    G_io_se_discard_rx = 0;
     G_io_se_length = G_io_se_offset_write = G_io_se_offset_read = 0;
-#endif
     
     /* Enable the Peripharal */
     __HAL_USART_ENABLE(&G_io_se_usart);
@@ -596,17 +481,12 @@ unsigned char SE_iso_power(unsigned char powered) {
     // grab ATR (force pps even if not needed)
     //return SE_iso_power_up(0x95); // ETU32
     //return SE_iso_power_up(0x96); // ETU16 // OK tested
-    return SE_iso_power_up(0x97); // ETU8 // some feil with invalid byte read from the SE
+    //return SE_iso_power_up(0x97); // ETU8
+    return SE_iso_power_up(0x98); // ETU4
     //return SE_iso_power_up(0xC6); // ETU16
     //return SE_iso_power_up(0xC8); // ETU12
   }
   else {
-
-#ifdef USE_USART_DMA
-    DMA1_Channel5->CCR = 0;
-    __DMA1_CLK_DISABLE();
-    G_io_se_usart.Instance->CR3 = 0;
-#endif // USE_USART_DMA
 
     // power off the usart, set all gpios to analog input
     HAL_NVIC_DisableIRQ(USART1_IRQn);
@@ -687,7 +567,7 @@ unsigned short SE_iso_exchange_apdu(unsigned char* apdu, unsigned short length) 
                 SE_iso_send(apdu+5,apdu[4]);
               }
               else {
-                G_io_apdu_length = apdu[4]; // P3 is Le
+                G_io_apdu_length = apdu[4]==0?256:apdu[4]; // P3 is Le
                 SE_iso_recv(G_io_apdu_buffer, G_io_apdu_length, NO_TIMEOUT);
               }
               // switch to COMMAND reception

@@ -97,6 +97,16 @@
   */
 #ifdef HAL_SPI_MODULE_ENABLED
 
+#ifdef HAVE_SPI_DEBUG
+#define DEBUG_SPI_SIZE 1024
+volatile int debug_spi_idx = 0;
+volatile char debug_spi_buf[DEBUG_SPI_SIZE];
+void DEBUG_SPI(unsigned char x) { debug_spi_buf[debug_spi_idx] = x ; if(debug_spi_idx < DEBUG_SPI_SIZE-1) debug_spi_idx++; }
+#else
+#define DEBUG_SPI(x)
+#endif // HAVE_SPI_DEBUG
+
+
 /* Private typedef -----------------------------------------------------------*/
 /* Private defines -----------------------------------------------------------*/
 /** @defgroup SPI_Private_Constants SPI Private Constants
@@ -789,6 +799,7 @@ __IO uint16_t tmpreg;
     SPI_RESET_CRC(hspi);
   }
 
+#if 1
   /* Set the Rx Fido threshold */
   if((hspi->Init.DataSize > SPI_DATASIZE_8BIT) || (hspi->RxXferCount > 1))
   {
@@ -796,6 +807,7 @@ __IO uint16_t tmpreg;
     CLEAR_BIT(hspi->Instance->CR2, SPI_RXFIFO_THRESHOLD);
   }
   else
+#endif
   {
     /* set fiforxthreshold according the reception data length: 8bit */
     SET_BIT(hspi->Instance->CR2, SPI_RXFIFO_THRESHOLD);
@@ -808,6 +820,7 @@ __IO uint16_t tmpreg;
     __HAL_SPI_ENABLE(hspi);
   }
 
+#if 1
   /* Transmit and Receive data in 16 Bit mode */
   if(hspi->Init.DataSize > SPI_DATASIZE_8BIT)
   {
@@ -843,12 +856,20 @@ __IO uint16_t tmpreg;
   }
   /* Transmit and Receive data in 8 Bit mode */
   else
+#endif
   {
+    unsigned int xfer = hspi->TxXferCount;
+    while(xfer) {
+      DEBUG_SPI(hspi->pTxBuffPtr[hspi->TxXferCount-xfer]);
+      xfer--;
+    }
+
     while((hspi->TxXferCount > 0) || (hspi->RxXferCount > 0))
     {
       /* check TXE flag */
       if((hspi->TxXferCount > 0) && ((hspi->Instance->SR & SPI_FLAG_TXE) == SPI_FLAG_TXE))
       {
+#if 1
         if(hspi->TxXferCount > 1)
         {
           hspi->Instance->DR = *((uint16_t*)hspi->pTxBuffPtr);
@@ -856,21 +877,25 @@ __IO uint16_t tmpreg;
           hspi->TxXferCount -= 2;
         }
         else
+#endif
         {
           *(__IO uint8_t *)&hspi->Instance->DR = (*hspi->pTxBuffPtr++);
           hspi->TxXferCount--;
         }
 
+#if 1
         /* Enable CRC Transmission */
         if((hspi->TxXferCount == 0) && (hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE))
         {
           hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
         }
+#endif
       }
 
       /* Wait until RXNE flag is reset */
       if((hspi->RxXferCount > 0) && ((hspi->Instance->SR & SPI_FLAG_RXNE) == SPI_FLAG_RXNE))
       {
+#if 1
         if(hspi->RxXferCount > 1)
         {
           *((uint16_t*)hspi->pRxBuffPtr) = hspi->Instance->DR;
@@ -883,8 +908,11 @@ __IO uint16_t tmpreg;
           }
         }
         else
+#endif
         {
-          (*hspi->pRxBuffPtr++) =  *(__IO uint8_t *)&hspi->Instance->DR;
+          unsigned char b = *(__IO uint8_t *)&hspi->Instance->DR;
+          (*hspi->pRxBuffPtr++) =  b;
+          DEBUG_SPI(b);
           hspi->RxXferCount--;
         }
       }
@@ -895,7 +923,7 @@ __IO uint16_t tmpreg;
       }
     }
   }
-
+#if 1
   /* Read CRC from DR to close CRC calculation process */
   if(hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
   {
@@ -942,6 +970,7 @@ __IO uint16_t tmpreg;
 
     errorcode = HAL_ERROR;
   }
+#endif
 
   /* Check the end of the transaction */
   if(SPI_EndRxTxTransaction(hspi,Timeout) != HAL_OK)
@@ -957,6 +986,7 @@ __IO uint16_t tmpreg;
 error :
   hspi->State = HAL_SPI_STATE_READY;
   __HAL_UNLOCK(hspi);
+  if (errorcode != HAL_OK) screen_printf("%d\n", errorcode);
   return errorcode;
 }
 

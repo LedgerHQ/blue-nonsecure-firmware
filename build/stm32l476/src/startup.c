@@ -157,6 +157,8 @@ Handler(void)
     //
     while(1)
     {
+       // sorry, unsupported, avoid draining the battery here
+       NVIC_SystemReset();
     }
 }
 

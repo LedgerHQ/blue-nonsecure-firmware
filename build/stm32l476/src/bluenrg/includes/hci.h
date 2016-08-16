@@ -213,8 +213,7 @@ uint8_t HCI_Queue_Empty(void);
  * reports a packet received or an event to the host through the 
  * BlueNRG interrupt line.
  */
-void HCI_Isr(void);
-int HCI_Isr_read_packet(void);
+void HCI_recv_packet(unsigned char* packet_buffer, unsigned int packet_length);
 
 extern tListNode hciReadPktPool;
 extern tListNode hciReadPktRxQueue;

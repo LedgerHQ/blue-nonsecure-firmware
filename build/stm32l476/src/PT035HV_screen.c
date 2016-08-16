@@ -50,13 +50,35 @@ extern SPI_HandleTypeDef hspi;
 
 #define SCREEN_HEIGHT 480
 #define SCREEN_WIDTH 320
+
+#ifdef NANOS_DEVKIT
+#define PRINTF_ZONE_HEIGHT (SCREEN_HEIGHT-128+1) 
+#else // NANOS_DEVKIT
 #define PRINTF_ZONE_HEIGHT (128+1)
+#endif // NANOS_DEVKIT
 #define PRINTF_FONT_HEIGHT 8
 #define PRINTF_FONT_WIDTH 5
 #define PRINTF_FONT_ID BAGL_FONT_LUCIDA_CONSOLE_8
 #define PRINTF_LINE_CHAR_LENGTH (SCREEN_WIDTH/PRINTF_FONT_WIDTH)
 #define PRINTF_LINE_COUNT (PRINTF_ZONE_HEIGHT/PRINTF_FONT_HEIGHT)
 unsigned char screen_charbuffer[PRINTF_LINE_CHAR_LENGTH*PRINTF_LINE_COUNT];
+
+
+#ifdef NANOS_DEVKIT
+#define BTN1_X 10
+#define BTN1_Y 58
+#define BTN1_W 64
+#define BTN1_H 64
+#define BTN2_X (SCREEN_WIDTH-BTN2_W-10)
+#define BTN2_Y 58
+#define BTN2_W 64
+#define BTN2_H 64
+
+#define BTN12_X (SCREEN_WIDTH/2-BTN12_W/2)
+#define BTN12_Y 58
+#define BTN12_W 128
+#define BTN12_H 64
+#endif
 
 
 #define DISP_NRST(x) BB_OUT(GPIOC, 1,x)
@@ -221,6 +243,69 @@ void EXTI15_10_IRQHandler(void) {
   if (buffer[0] == 0x52) {
     switch(buffer[1]) {
       case 0xFF:
+#ifdef NANOS_DEVKIT
+        // release is when no finger remains
+        __asm("cpsid i");
+        // don't perform release if an event is already ongoing or if already released
+        if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BUTTON || G_io_button.pressed == 0) {
+          __asm("cpsie i");
+          break;
+        }
+
+        G_io_button.pressed = 0;
+        G_io_button.duration_ms = 0;
+        
+        if (G_io_touch.ts_last_x >= BTN1_X && G_io_touch.ts_last_x <= BTN1_X+BTN1_W
+         && G_io_touch.ts_last_y >= BTN1_Y && G_io_touch.ts_last_y <= BTN1_Y+BTN1_H) {
+          G_io_button.pressed &= ~1;
+        }
+
+        if (G_io_touch.ts_last_x >= BTN2_X && G_io_touch.ts_last_x <= BTN2_X+BTN2_W
+         && G_io_touch.ts_last_y >= BTN2_Y && G_io_touch.ts_last_y <= BTN2_Y+BTN2_H) {
+          G_io_button.pressed &= ~2;
+        }
+
+
+        if (G_io_touch.ts_last_x2 >= BTN1_X && G_io_touch.ts_last_x2 <= BTN1_X+BTN1_W
+         && G_io_touch.ts_last_y2 >= BTN1_Y && G_io_touch.ts_last_y2 <= BTN1_Y+BTN1_H) {
+          G_io_button.pressed &= ~1;
+        }
+
+        if (G_io_touch.ts_last_x2 >= BTN2_X && G_io_touch.ts_last_x2 <= BTN2_X+BTN2_W
+         && G_io_touch.ts_last_y2 >= BTN2_Y && G_io_touch.ts_last_y2 <= BTN2_Y+BTN2_H) {
+          G_io_button.pressed &= ~2;
+        }
+
+        if (G_io_button.pressed==1) {
+          // left button
+          bagl_hal_draw_rect(0x700000, BTN1_X, BTN1_Y, BTN1_W, BTN1_H);
+        }
+        else {
+          // left button
+          bagl_hal_draw_rect(0xFF0000, BTN1_X, BTN1_Y, BTN1_W, BTN1_H);
+        }
+        if (G_io_button.pressed==2) {
+          // right button
+          bagl_hal_draw_rect(0x000070, BTN2_X, BTN2_Y, BTN2_W, BTN2_H);
+        }
+        else {
+          // right button
+          bagl_hal_draw_rect(0x0000FF, BTN2_X, BTN2_Y, BTN2_W, BTN2_H);
+        }
+
+        if (G_io_button.pressed == 3) {
+          // both button
+          bagl_hal_draw_rect(0x007000, BTN12_X, BTN12_Y, BTN12_W, BTN12_H);
+        }
+        else {
+          // both button
+          bagl_hal_draw_rect(0x00FF00, BTN12_X, BTN12_Y, BTN12_W, BTN12_H);
+        }
+        
+        // at worst we released a touch
+        G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
+        __asm("cpsie i");
+#else // NANOS_DEVKIT
         // releasing !!
         // only one release event to lower the cpu load
         if (G_io_touch.ts_last_x >= 0 && G_io_touch.ts_last_y >= 0) {
@@ -228,6 +313,7 @@ void EXTI15_10_IRQHandler(void) {
           G_io_seproxyhal_events |= SEPROXYHAL_EVENT_RELEASE;
           __asm("cpsie i");
         }
+#endif // NANOS_DEVKIT
         break;
       default: {
         uint16_t x1, y1;
@@ -237,11 +323,11 @@ void EXTI15_10_IRQHandler(void) {
         //#ifdef YL035_2_FINGERS
         int16_t x2, y2;
         x2 = ((buffer[4] & 0xF0) << 4) | buffer[5];
-        if (x2 & 0x800) {
+        if (x2 & 0x800) { // sign extent
           x2 |= 0xF000;
         }
         y2 = ((buffer[4] & 0x0F) << 8) | buffer[6];
-        if (y2 & 0x800) {
+        if (y2 & 0x800) { // sign extent
           y2 |= 0xF000;
         }
         //x2 = x2 *15 / 64;//480/2048;
@@ -253,34 +339,105 @@ void EXTI15_10_IRQHandler(void) {
           x2 += x1;
           y2 += y1;
 
-          x2 = x2 *15 / 64;//480/2048;
-          y2 = y2 * 5 / 32;//320/2048;
-
           // a second finger is available
           G_io_touch.ts_last_2 = 1;
         }
 
+
         // adjust the second finger with the offset of the first
         x1 = x1 *15 / 64;//480/2048;
         y1 = y1 * 5 / 32;//320/2048;
-        
+
+        x2 = x2 *15 / 64;//480/2048;
+        y2 = y2 * 5 / 32;//320/2048;
+ 
         // reverse the y coord
 #ifdef HAVE_PT035HV_ROTATION_0
         G_io_touch.ts_last_x = SCREEN_WIDTH-y1;
         G_io_touch.ts_last_y = x1;
-        G_io_touch.ts_last_x2 = SCREEN_WIDTH-y2;
-        G_io_touch.ts_last_y2 = x2;
+        if (G_io_touch.ts_last_2) {
+          G_io_touch.ts_last_x2 = SCREEN_WIDTH-y2;
+          G_io_touch.ts_last_y2 = x2;
+        }
 #endif // HAVE_PT035HV_ROTATION_0
 #ifdef HAVE_PT035HV_ROTATION_180
         G_io_touch.ts_last_x = y1;
         G_io_touch.ts_last_y = SCREEN_HEIGHT-x1;
-        G_io_touch.ts_last_x2 = y2;
-        G_io_touch.ts_last_y2 = SCREEN_HEIGHT-x2;
+        if (G_io_touch.ts_last_2) {
+          G_io_touch.ts_last_x2 = y2;
+          G_io_touch.ts_last_y2 = SCREEN_HEIGHT-x2;
+        }
 #endif // HAVE_PT035HV_ROTATION_180
 
+#ifdef NANOS_DEVKIT
+        // compute button mask
+        __asm("cpsid i");
+        unsigned old_mask = G_io_button.pressed;
+        G_io_button.pressed = 0;
+        G_io_button.duration_ms = 0;
+        if (G_io_touch.ts_last_x >= BTN1_X && G_io_touch.ts_last_x <= BTN1_X+BTN1_W
+         && G_io_touch.ts_last_y >= BTN1_Y && G_io_touch.ts_last_y <= BTN1_Y+BTN1_H) {
+          G_io_button.pressed |= 1;
+        }
+
+        if (G_io_touch.ts_last_x >= BTN2_X && G_io_touch.ts_last_x <= BTN2_X+BTN2_W
+         && G_io_touch.ts_last_y >= BTN2_Y && G_io_touch.ts_last_y <= BTN2_Y+BTN2_H) {
+          G_io_button.pressed |= 2;
+        }
+
+        if (G_io_touch.ts_last_x >= BTN12_X && G_io_touch.ts_last_x <= BTN12_X+BTN12_W
+         && G_io_touch.ts_last_y >= BTN12_Y && G_io_touch.ts_last_y <= BTN12_Y+BTN12_H) {
+          G_io_button.pressed |= 3;
+        }
+
+        /* seems not to work
+        if (G_io_touch.ts_last_x2 >= BTN1_X && G_io_touch.ts_last_x2 <= BTN1_X+BTN1_W
+         && G_io_touch.ts_last_y2 >= BTN1_Y && G_io_touch.ts_last_y2 <= BTN1_Y+BTN1_H) {
+          G_io_button.pressed |= 1;
+        }
+
+        if (G_io_touch.ts_last_x2 >= BTN2_X && G_io_touch.ts_last_x2 <= BTN2_X+BTN2_W
+         && G_io_touch.ts_last_y2 >= BTN2_Y && G_io_touch.ts_last_y2 <= BTN2_Y+BTN2_H) {
+          G_io_button.pressed |= 2;
+        }
+        */
+
+        if (G_io_button.pressed) {
+          if (G_io_button.pressed==1) {
+            // left button
+            bagl_hal_draw_rect(0x700000, BTN1_X, BTN1_Y, BTN1_W, BTN1_H);
+          }
+          else {
+            // left button
+            bagl_hal_draw_rect(0xFF0000, BTN1_X, BTN1_Y, BTN1_W, BTN1_H);
+          }
+          if (G_io_button.pressed==2) {
+            // right button
+            bagl_hal_draw_rect(0x000070, BTN2_X, BTN2_Y, BTN2_W, BTN2_H);
+          }
+          else {
+            // right button
+            bagl_hal_draw_rect(0x0000FF, BTN2_X, BTN2_Y, BTN2_W, BTN2_H);
+          }
+
+          if (G_io_button.pressed == 3) {
+            // both button
+            bagl_hal_draw_rect(0x007000, BTN12_X, BTN12_Y, BTN12_W, BTN12_H);
+          }
+          else {
+            // both button
+            bagl_hal_draw_rect(0x00FF00, BTN12_X, BTN12_Y, BTN12_W, BTN12_H);
+          }
+        }
+        if (old_mask == 0) {
+          G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
+        }
+        __asm("cpsie i");
+#else // NANOS_DEVKIT
         __asm("cpsid i");
         G_io_seproxyhal_events |= SEPROXYHAL_EVENT_TOUCH;
         __asm("cpsie i");
+#endif // NANOS_DEVKIT
       }
     }
   }    
@@ -289,17 +446,21 @@ void EXTI15_10_IRQHandler(void) {
 
 // manually pump the touch events to avoid problems of the USART/I2C conflicts
 void screen_update_touch_event(void) {
-  if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_11)) {
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
-    EXTI15_10_IRQHandler();
-  }
 
+#ifndef NANOS_DEVKIT
   if ((G_io_seproxyhal_events & (SEPROXYHAL_EVENT_TOUCH|SEPROXYHAL_EVENT_RELEASE)) == 0 
     && G_io_touch.ts_last_2) {
     G_io_touch.ts_last_2 = 0;
     G_io_touch.ts_last_x = G_io_touch.ts_last_x2;
     G_io_touch.ts_last_y = G_io_touch.ts_last_y2;
     G_io_seproxyhal_events |= SEPROXYHAL_EVENT_TOUCH;
+    return;
+  }
+#endif // NANOS_DEVKIT
+
+  if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_11)) {
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
+    EXTI15_10_IRQHandler();
   }
 }
 
@@ -309,6 +470,7 @@ void screen_init(unsigned char reinit)
 {
   GPIO_InitTypeDef GPIO_InitStruct;
 
+  G_io_touch.ts_last_2 = 0;
   G_io_touch.ts_last_x = -1;
   G_io_touch.ts_last_y = -1;
 
@@ -611,6 +773,15 @@ void screen_init(unsigned char reinit)
   HAL_Delay(10);
   TS_CE(1);
 
+#ifdef NANOS_DEVKIT
+  // left button
+  bagl_hal_draw_rect(0xFF0000, BTN1_X, BTN1_Y, BTN1_W, BTN1_H);
+  // right button
+  bagl_hal_draw_rect(0x0000FF, BTN2_X, BTN2_Y, BTN2_W, BTN2_H);
+  // both button
+  bagl_hal_draw_rect(0x00FF00, BTN12_X, BTN12_Y, BTN12_W, BTN12_H);
+#endif
+
   // consume touch interrupt
   NVIC_ClearPendingIRQ(EXTI15_10_IRQn);
 }
@@ -668,9 +839,14 @@ void screen_brightness(uint8_t percentage) {
 // to draw font faster as the pixel loop is at the lower layer (if not directly within transport)
 #define MAX_BITMAP_COLORS 16
 unsigned char colors565_4bits[MAX_BITMAP_COLORS*2];
-void bagl_hal_draw_bitmap_within_rect(unsigned short x, unsigned short y, unsigned short width, unsigned short height, unsigned int color_count, unsigned int *colors, unsigned int bit_per_pixel, unsigned char* bitmap, unsigned int bitmap_length_bits) {
+void bagl_hal_draw_bitmap_within_rect(int x, int y, unsigned int width, unsigned int height, unsigned int color_count, unsigned int *colors, unsigned int bit_per_pixel, unsigned char* bitmap, unsigned int bitmap_length_bits) {
   unsigned int i;  
   unsigned int pixel_mask = (1<<bit_per_pixel)-1;
+
+  // unsupported yet
+  if (x<0 ||y<0) {
+    return;
+  }
 
   // TODO take care of bitmap with bit per pixel > 8 !!
 
@@ -725,7 +901,7 @@ void bagl_hal_draw_bitmap_continue(unsigned int bit_per_pixel, unsigned char* bi
 }
 
 // draw a simple rect
-void bagl_hal_draw_rect(unsigned int color, unsigned short x, unsigned short y, unsigned short width, unsigned short height) {
+void bagl_hal_draw_rect(unsigned int color, int x, int y, unsigned int width, unsigned int height) {
   unsigned int i;
 
   // RGB 888 to RGB 565

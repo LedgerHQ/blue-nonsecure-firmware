@@ -142,7 +142,7 @@ extern void          FLASH_PageErase(uint32_t Page, uint32_t Banks);
 extern void          FLASH_FlushCaches(void);
 static void          FLASH_SetErrorCode(void);
 static void          FLASH_Program_DoubleWord(uint32_t Address, uint64_t Data);
-static void          FLASH_Program_Fast(uint32_t Address, uint32_t DataAddress);
+void          FLASH_Program_Fast(uint32_t Address, uint32_t DataAddress);
 /**
   * @}
   */
@@ -724,7 +724,7 @@ static void FLASH_Program_DoubleWord(uint32_t Address, uint64_t Data)
   * @param  DataAddress: specifies the address where the data are stored.
   * @retval None
   */
-static void FLASH_Program_Fast(uint32_t Address, uint32_t DataAddress)
+void FLASH_Program_Fast(uint32_t Address, uint32_t DataAddress)
 {
   uint8_t row_index = 32;
   __IO uint64_t *dest_addr = (__IO uint64_t*)Address;

@@ -749,23 +749,436 @@ unsigned char const C_icon_backspace_bitmap[] = {
   0x40, 0xff, 0x07, 0x00, 0x00, 0x90, 
 };
 
+
+unsigned int const C_icon_check_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+};
+
+unsigned char const C_icon_check_bitmap[] = {
+  0x80, 0x40, 0x20, 0x11, 0x0a, 0x04, 
+};
+
+
+unsigned int const C_icon_cross_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+};
+
+unsigned char const C_icon_cross_bitmap[] = {
+  0x41, 0x11, 0x05, 0x41, 0x11, 0x05, 0x01, 
+};
+
+unsigned int const C_icon_left_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_icon_left_bitmap[] = {
+  0x48, 0x12, 0x42, 0x08, 
+};
+
+unsigned int const C_icon_right_colors[] = {                                                                                                                          
+  0x00000000,                                                                                                                                                         
+  0x00ffffff,                                                                                                                                                         
+                                                                                                                                                                      
+};                                                                                                                                                                    
+                                                                                                                                                                      
+unsigned char const C_icon_right_bitmap[] = {                                                                                                                         
+  0x21, 0x84, 0x24, 0x01, 
+};
+
+
+unsigned int const C_icon_up_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_icon_up_bitmap[] = {
+  0x08, 0x8a, 0x28, 0x08, 
+};
+
+unsigned int const C_icon_down_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_icon_down_bitmap[] = {
+  0x41, 0x11, 0x05, 0x01, 
+};
+
+unsigned int const C_logo_ledger_mini_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+
+};
+
+unsigned char const C_logo_ledger_mini_bitmap[] = {
+  0x33, 0xc0, 0x31, 0x80, 0x30, 0x00, 0x30, 0x00, 0x3f, 0x00, 0x3f, 0x00, 0x30, 0x00, 0x30, 0x00, 
+  0x30, 0x00, 0x30, 0x00, 0xff, 0xff, 0xff, 0xff, 0x30, 0x0c, 0x30, 0x0c, 0x31, 0x8c, 0x33, 0xcc, 
+  
+};
+
+
+unsigned int const C_icon_cross_badge_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+
+};
+
+unsigned char const C_icon_cross_badge_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x00, 0x47, 0x88, 0x39, 0x27, 0xfc, 0x00, 0x1e, 0x80, 0x07, 0xf0, 0x43, 
+  0xce, 0x19, 0x21, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+
+unsigned int const C_badge_dashboard_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_dashboard_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x00, 0xc7, 0x8f, 0xf9, 0x27, 0x86, 0x81, 0x61, 0x60, 0x18, 0x18, 0x46, 
+  0xfe, 0x19, 0x3f, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+unsigned int const C_badge_validate_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+
+};
+
+unsigned char const C_badge_validate_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x00, 0x07, 0x80, 0x01, 0x24, 0x80, 0x83, 0x70, 0x70, 0x0e, 0xf8, 0x41, 
+  0x3c, 0x18, 0x06, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+unsigned int const C_icon_plus_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_icon_plus_bitmap[] = {
+  0x08, 0x04, 0xe2, 0x8f, 0x40, 0x20, 0x00, 
+};
+
+
+unsigned int const C_icon_less_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+};
+
+unsigned char const C_icon_less_bitmap[] = {
+  0xff,
+};
+
+
+unsigned int const C_toggle_on_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+};
+
+unsigned char const C_toggle_on_bitmap[] = {
+  0xf8, 0x1f, 0x04, 0x20, 0x02, 0x4c, 0x01, 0x9e, 0x01, 0xbf, 0x01, 0xbf, 0x01, 0x9e, 0x02, 0x4c, 
+  0x04, 0x20, 0xf8, 0x1f, 
+};
+
+
+unsigned int const C_toggle_off_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_toggle_off_bitmap[] = {
+  0xf8, 0x1f, 0x04, 0x20, 0x32, 0x40, 0x79, 0x80, 0xfd, 0x80, 0xfd, 0x80, 0x79, 0x80, 0x32, 0x40, 
+  0x04, 0x20, 0xf8, 0x1f, 
+};
+
+unsigned int const C_badge_loading_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+};
+
+unsigned char const C_badge_loading_bitmap[] = {
+  0xc0, 0x00, 0x30, 0xc0, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x0f, 0xc0, 0x00, 0x00, 
+  0x00, 0xc0, 0xc0, 0x30, 0x30, 0xc0, 0x00, 0x30, 0x00, 
+};
+
+unsigned int const C_app_settings_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_app_settings_bitmap[] = {
+  0x00, 0x00, 0xf0, 0x0f, 0xfc, 0x3f, 0x7c, 0x3e, 0x5e, 0x7a, 0x0e, 0x70, 0x1e, 0x78, 0x86, 0x61, 
+  0x86, 0x61, 0x1e, 0x78, 0x0e, 0x70, 0x5e, 0x7a, 0x7c, 0x3e, 0xfc, 0x3f, 0xf0, 0x0f, 0x00, 0x00, 
+
+};
+
+
+
+unsigned int const C_badge_warning_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_warning_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x00, 0x07, 0x83, 0xc1, 0x20, 0x30, 0x00, 0x0c, 0x00, 0x03, 0x00, 0x40, 
+  0x30, 0x18, 0x0c, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+
+unsigned int const C_badge_install_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_install_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x0c, 0x07, 0x83, 0xc1, 0x20, 0xfc, 0x00, 0x1e, 0x00, 0x03, 0x00, 0x40, 
+  0xfc, 0x18, 0x3f, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+
+unsigned int const C_badge_transaction_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_transaction_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x10, 0x07, 0x8c, 0xf9, 0x27, 0xfe, 0x01, 0x32, 0xc0, 0x04, 0xf8, 0x47, 
+  0xfe, 0x19, 0x03, 0x8e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+unsigned int const C_badge_bitcoin_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_bitcoin_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x0a, 0xe7, 0x87, 0x31, 0x23, 0xcc, 0x00, 0x3f, 0xc0, 0x1c, 0x30, 0x46, 
+  0xcc, 0x99, 0x3f, 0x8e, 0xc2, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+unsigned int const C_badge_ethereum_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_ethereum_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x0c, 0x07, 0x83, 0xe1, 0x21, 0x78, 0x00, 0x3f, 0x80, 0x07, 0x10, 0x42, 
+  0x78, 0x18, 0x1e, 0x0e, 0xc3, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+unsigned int const C_badge_eye_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_eye_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x00, 0x07, 0x80, 0xe1, 0x21, 0xfe, 0xc1, 0xf3, 0xf0, 0x3c, 0xf8, 0x47, 
+  0x78, 0x18, 0x00, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+unsigned int const C_badge_people_colors[] = {
+  0x00ffffff, 
+  0x00000000, 
+};
+
+unsigned char const C_badge_people_bitmap[] = {
+  0x1f, 0xfe, 0x01, 0x3e, 0x00, 0x07, 0x83, 0xe1, 0x21, 0x30, 0x00, 0x00, 0x80, 0x07, 0xf0, 0x43, 
+  0xfc, 0x18, 0x3f, 0x0e, 0xc0, 0x07, 0xf8, 0x87, 0x0f, 
+};
+
+unsigned int const C_badge_lock_colors[] = {
+  0x00000000, 
+  0x00ffffff, 
+
+};
+
+unsigned char const C_badge_lock_bitmap[] = {
+  0xe0, 0x01, 0xfe, 0xc1, 0xe1, 0x38, 0x70, 0xce, 0xdc, 0x33, 0x7f, 0x80, 0x1f, 0xe0, 0x07, 0xb8, 
+  0x01, 0x66, 0x80, 0xf1, 0x3f, 0xf8, 0x07, 0x78, 0x00, 
+};
+
+
+#define BAGL_GLYPH_NONE { 0, 0, 0, NULL, NULL}
+
 const bagl_glyph_array_entry_t const C_glyph_array[] = {
   { 0, 0, 0, NULL, NULL}, // icon_id = 0
 #ifdef HAVE_BAGL_GLYPH_LOGO_LEDGER
   { 101, 104, 4, C_logo_ledger_colors, C_logo_ledger_bitmap},
+#else
+  BAGL_GLYPH_NONE,
 #endif
 #ifdef HAVE_BAGL_GLYPH_LOGO_LEDGER_BLUE
   { 120, 72, 4, C_logo_ledger_blue_colors, C_logo_ledger_blue_bitmap},
+#else
+  BAGL_GLYPH_NONE,
 #endif 
 #ifdef HAVE_BAGL_GLYPH_LOGO_BOOTLOADER
   { 50, 50, 2, C_icon_bootloader_colors, C_icon_bootloader_bitmap},
+#else
+  BAGL_GLYPH_NONE,
 #endif
 #ifdef HAVE_BAGL_GLYPH_ICON_CLEAR
   { 16, 16, 2, C_icon_clear_colors, C_icon_clear_bitmap},
+#else
+  BAGL_GLYPH_NONE,
 #endif
 #ifdef HAVE_BAGL_GLYPH_ICON_BACKSPACE
   { 20, 14, 2, C_icon_backspace_colors, C_icon_backspace_bitmap},
+#else
+  BAGL_GLYPH_NONE,
 #endif
+#ifdef HAVE_BAGL_GLYPH_ICON_CHECK
+  { 8, 6, 1, C_icon_check_colors, C_icon_check_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+#ifdef HAVE_BAGL_GLYPH_ICON_CROSS
+  { 7, 7, 1, C_icon_cross_colors, C_icon_cross_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_CHECK_BADGE
+  { 14, 14, 1, C_badge_validate_colors, C_badge_validate_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_LEFT
+  { 4, 7, 1, C_icon_left_colors, C_icon_left_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_RIGHT
+  { 4, 7, 1, C_icon_right_colors, C_icon_right_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_UP
+  { 7, 4, 1, C_icon_up_colors, C_icon_up_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_DOWN
+  { 7, 4, 1, C_icon_down_colors, C_icon_down_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_LOGO_LEDGER_MINI
+  { 16, 16, 1, C_logo_ledger_mini_colors, C_logo_ledger_mini_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_CROSS_BADGE
+  { 14, 14, 1, C_icon_cross_badge_colors, C_icon_cross_badge_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_DASHBOARD_BADGE
+  { 14, 14, 1, C_badge_dashboard_colors, C_badge_dashboard_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_PLUS
+  { 7, 7, 1, C_icon_plus_colors, C_icon_plus_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_LESS
+  { 6, 1, 1, C_icon_less_colors, C_icon_less_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_TOGGLE_ON
+  { 16, 10, 1, C_toggle_on_colors, C_toggle_on_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_TOGGLE_OFF
+  { 16, 10, 1, C_toggle_off_colors, C_toggle_off_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_LOADING_BADGE
+  { 14, 14, 1, C_badge_loading_colors, C_badge_loading_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_COG_BADGE
+  { 16, 16, 1, C_app_settings_colors, C_app_settings_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_WARNING_BADGE
+  { 14, 14, 1, C_badge_warning_colors, C_badge_warning_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_DOWNLOAD_BADGE
+  { 14, 14, 1, C_badge_install_colors, C_badge_install_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_TRANSACTION_BADGE
+  { 14, 14, 1, C_badge_transaction_colors, C_badge_transaction_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_BITCOIN_BADGE
+  { 14, 14, 1, C_badge_bitcoin_colors, C_badge_bitcoin_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_ETHEREUM_BADGE
+  { 14, 14, 1, C_badge_ethereum_colors, C_badge_ethereum_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_EYE_BADGE
+  { 14, 14, 1, C_badge_eye_colors, C_badge_eye_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_PEOPLE_BADGE
+  { 14, 14, 1, C_badge_people_colors, C_badge_people_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+#ifdef HAVE_BAGL_GLYPH_ICON_LOCK_BADGE
+  { 14, 14, 1, C_badge_lock_colors, C_badge_lock_bitmap},
+#else
+  BAGL_GLYPH_NONE,
+#endif
+
+
 };
 
 const unsigned int C_glyph_count = sizeof(C_glyph_array)/sizeof(C_glyph_array[0]);

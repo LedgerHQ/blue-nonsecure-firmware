@@ -45,6 +45,7 @@
 
 #include "bagl.h"
 #include "seproxyhal.h"
+#include "nvm.h"
 
 #include "bootloader.h"
 
@@ -56,6 +57,10 @@
 
 #define UI_KEYBOARD_BLINK_ON_TOUCH_CYCLES 25
 
+/* Low levels
+#define BACKLIGHT_FULL_LEVEL  12
+#define BACKLIGHT_DIM_LEVEL   5
+*/
 #define BACKLIGHT_FULL_LEVEL  70
 #define BACKLIGHT_DIM_LEVEL   20
 
@@ -68,7 +73,7 @@
 
 const uint32_t CLOCK_SECOND = 1000/SYSTICK_MS;
 
-volatile unsigned int frequency_hz;
+unsigned int frequency_hz;
 
 SPI_HandleTypeDef hspi;
 volatile unsigned short G_io_apdu_length;
@@ -95,30 +100,7 @@ volatile unsigned int G_backlight_autooff_ms;
 volatile unsigned int G_backlight_autodim_ms;
 #define BATTERY_CHECK_INTERVAL_MS (10*1000)
 
-volatile struct {
-  uint32_t duration_ms;
-  uint32_t pressed;
-  #define MODE_SE_RECOVERY    1
-  #define MODE_MCU_BOOTLOADER 2
-  #define MODE_POWER_OFF      4
-  #define MODE_POWER_ON       8
-  #define MODE_BOOT          16
-#ifdef DEBUG_BUTTON_FLASHBACK
-  #define MODE_SE_FLASHBACK  32
-#endif // DEBUG_BUTTON_FLASHBACK
-#ifdef DEBUG_BUTTON_LINK_DEBUG
-  #define MODE_LINK_DEBUG    64
-#endif // DEBUG_BUTTON_LINK_DEBUG
-  uint32_t displayed_mode;
-
-
-#ifdef DEBUG_BUTTON_LINK_DEBUG
-  unsigned int link_debug;
-#endif // DEBUG_BUTTON_LINK_DEBUG
-  uint32_t boot_moment;
-
-  uint32_t next_event_ms;
-} G_io_button;
+volatile io_button_t G_io_button;
 
 #ifdef DEBUG_BUTTON_ALWAYS_PUSHED
   #define BUTTON_PRESS_DURATION_BOOT_POWER_OFF         50 // long enough to avoid people being troubled when trying to go bootloader
@@ -150,23 +132,17 @@ volatile struct {
 
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
+volatile unsigned char G_io_apdu_protocol_enabled;
+#ifdef HAVE_TOUCHPANEL
 volatile struct touch_state_s G_io_touch;
+#endif // HAVE_TOUCHPANEL
 volatile struct ble_state_s G_io_ble;
 volatile struct usb_state_s G_io_usb;
 volatile int G_io_seproxyhal_state;
-volatile unsigned char G_io_ble_apdu_protocol_enabled;
-volatile unsigned char G_io_seproxyhal_ble_handles[IO_SEPROXYHAL_BLE_HANDLE_MAXCOUNT];
-volatile unsigned char G_io_seproxyhal_ble_last_read_request_handle;
 volatile unsigned int G_io_seproxyhal_events;
 volatile unsigned char G_io_seproxyhal_buffer[IO_SEPROXYHAL_BUFFER_SIZE_B];
 
-extern unsigned char _signed;
-extern unsigned char _esigned;
-extern unsigned char _esignature;
-volatile struct {
-  unsigned int size;
-  unsigned int offset;
-} G_io_unsec_chunk;
+volatile io_unsec_chunk_t G_io_unsec_chunk;
 
 // dummy in case no screen HW declared
 __weak void screen_init(unsigned char reinit) {}
@@ -188,6 +164,7 @@ unsigned char G_seproxyhal_event_timeout_header[3];
 void autopoweroff_reset(void) {
   G_poweroff_ms = 0;
 }
+
 unsigned int backlight_level;
 unsigned int backlight_is_enabled(void) {
   #ifdef BACKLIGHT_AUTOOFF_MS
@@ -452,7 +429,8 @@ void SYSTICK_power(unsigned char powered) {
  * ========================================================================================== 
  */
 
-#ifndef HAVE_BL
+
+#ifdef HAVE_BLE
 /**
   * @brief  PendSV_Handler This function handles PendSVC exception.
   * @param  None
@@ -461,9 +439,9 @@ void SYSTICK_power(unsigned char powered) {
 void PendSV_Handler(void)
 {
   // process bluetooth IO state machin more prioritized than nomal process (main)
-  HCI_Process();
+  BlueNRG_PENDSV_Process();
 }
-#endif // HAVE_BL
+#endif // HAVE_BLE
 
 /**
 * @brief This function handles USB OTG FS global interrupt.
@@ -494,23 +472,14 @@ void SysTick_Handler(void)
   // TODO: remove me to detect HAL_Delay loops
   uwTick+=SYSTICK_MS;
   
-  
-#ifdef UI_KEYBOARD_BLINK_ON_TOUCH_CYCLES
-  // unpower leds if countdown reached
-  if (UI_led_remaining_ticks > 0) {
-    UI_led_remaining_ticks--;
-    if (UI_led_remaining_ticks == 0) {
-      UI_led_power(0);
-    }
-  }
-#endif // UI_KEYBOARD_BLINK_ON_TOUCH_CYCLES
-
   // update the ticker event
   if (G_io_seproxyhal_ticker_enabled) {
     G_io_seproxyhal_ticker_current_ms += SYSTICK_MS;
     if (G_io_seproxyhal_ticker_current_ms >= G_io_seproxyhal_ticker_interval_ms) {
+      __asm volatile ("cpsid i");
       G_io_seproxyhal_events |= SEPROXYHAL_EVENT_TICKER;
       G_io_seproxyhal_ticker_current_ms = 0;
+      __asm volatile ("cpsie i");
     }
   }
 
@@ -518,12 +487,16 @@ void SysTick_Handler(void)
     // compute total press duration
     G_io_button.duration_ms += SYSTICK_MS;
 
+/* temporarily disable for bolos ux on nano
     // prepare to generate a new button event
     G_io_button.next_event_ms += SYSTICK_MS;
     if (G_io_button.next_event_ms >= SEPROXYHAL_TAG_BUTTON_PUSH_INTERVAL_MS) {
+      __asm volatile ("cpsid i");
       G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
       G_io_button.next_event_ms = 0;
+      __asm volatile ("cpsie i");
     }
+*/
 
     if (G_io_button.displayed_mode & MODE_BOOT) {
       if (G_io_button.duration_ms > BUTTON_PRESS_DURATION_BOOT_SE_RECOVERY && ! (G_io_button.displayed_mode & MODE_SE_RECOVERY)) {
@@ -592,7 +565,7 @@ void SysTick_Handler(void)
 
   // battery level check (only when not button pressed, to avoid problem during boot)
   if (uwTick > G_battery_test_ms 
-      && G_io_usb.bootloader // only display battery over bootloader
+      && G_io_apdu_protocol_enabled // only display battery over bootloader
 #ifdef HAVE_DRAW
     && G_battery_test_ms != -1 
 #endif // HAVE_DRAW
@@ -657,13 +630,12 @@ void EXTI2_IRQHandler(void) {
   if (__HAL_GPIO_EXTI_GET_FLAG(GPIO_PIN_2)) {
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_2);
     if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_2)) {
+      __asm volatile ("cpsid i");
       G_io_button.duration_ms = 0;
-      G_io_button.displayed_mode = 0;
-      G_io_button.boot_moment = 0; // not needed
-      G_io_button.pressed = 1;
+      G_io_button.pressed |= 1;
       G_io_button.next_event_ms = 0;
       G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
-
+      __asm volatile ("cpsie i");
       // ensure backlight is enabled
       backlight_enable(1);
     }
@@ -683,14 +655,16 @@ void EXTI2_IRQHandler(void) {
       }
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
-      G_io_button.pressed = 0;
+      __asm volatile ("cpsid i");
+      G_io_button.pressed &= ~1;
       // G_io_button.next_event_ms = 0; // don't !! to avoid killing the interval computation with another button
       G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BUTTON;
+      __asm volatile ("cpsie i");
     }
   }
 }
 
-#ifndef HAVE_BL
+#ifdef HAVE_BLE
 /**
   *
   *
@@ -699,12 +673,12 @@ void BNRG_SPI_EXTI_IRQHandler(void) {
   // detect BLE request to read
   if (BNRG_SPI_EXTI_PORT->IDR & BNRG_SPI_EXTI_PIN) {
     //Hal_IRQ_Serial();
-    HCI_Isr();
+    BlueNRG_EXTI_Process();
   }
   // done after to avoid glitch interpretation during read command start
   __HAL_GPIO_EXTI_CLEAR_IT(BNRG_SPI_EXTI_PIN);
 }
-#endif // HAVE_BL
+#endif // HAVE_BLE
 
 #include "bagl.h"
 
@@ -1032,170 +1006,16 @@ unsigned short  cx_crc16(void const *buf, int len) {
   return cx_crc16_update(0xFFFF, buf, len);
 }
 
-unsigned char nvm_page_D [NVM_PAGE_SIZE_B];
-
-/**
-  * @brief  Gets the page of a given address
-  * @param  Addr: Address of the FLASH Memory
-  * @retval The page of a given address
-  */
-static uint32_t GetPage(uint32_t Addr)
-{
-  uint32_t page = 0;
-  
-  if (Addr < (FLASH_BASE + FLASH_BANK_SIZE))
-  {
-    /* Bank 1 */
-    page = (Addr - FLASH_BASE) / FLASH_PAGE_SIZE;
-  }
-  else
-  {
-    /* Bank 2 */
-    page = (Addr - (FLASH_BASE + FLASH_BANK_SIZE)) / FLASH_PAGE_SIZE;
-  }
-  
-  return page;
-}
-
-/**
-  * @brief  Gets the bank of a given address
-  * @param  Addr: Address of the FLASH Memory
-  * @retval The bank of a given address
-  */
-static uint32_t GetBank(uint32_t Addr)
-{
-  uint32_t bank = 0;
-  
-  if (READ_BIT(SYSCFG->MEMRMP, SYSCFG_MEMRMP_FB_MODE) == 0)
-  {
-    /* No Bank swap */
-    if (Addr < (FLASH_BASE + FLASH_BANK_SIZE))
-    {
-      bank = FLASH_BANK_1;
-    }
-    else
-    {
-      bank = FLASH_BANK_2;
-    }
-  }
-  else
-  {
-    /* Bank swap */
-    if (Addr < (FLASH_BASE + FLASH_BANK_SIZE))
-    {
-      bank = FLASH_BANK_2;
-    }
-    else
-    {
-      bank = FLASH_BANK_1;
-    }
-  }
-  
-  return bank;
-}
-
-// todo later
-const unsigned char * nvm_write_page_address;
-void nvm_write_page_flush(void) {
-
-}
-
-void nvm_write_page(const unsigned char* page) {
-  HAL_FLASH_Unlock();
-
-  /* Clear OPTVERR bit set on virgin samples */
-  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR); 
-  /* Fill EraseInit structure*/
-  FLASH_EraseInitTypeDef EraseInitStruct;
-  EraseInitStruct.TypeErase   = FLASH_TYPEERASE_PAGES;
-  EraseInitStruct.Banks       = GetBank(page);
-  EraseInitStruct.Page        = GetPage(page);
-  EraseInitStruct.NbPages     = 1;
-
-  /* Note: If an erase operation in Flash memory also concerns data in the data or instruction cache,
-     you have to make sure that these data are rewritten before they are accessed during code
-     execution. If this cannot be done safely, it is recommended to flush the caches by setting the
-     DCRST and ICRST bits in the FLASH_CR register. */
-  unsigned int PAGEError;
-  if (HAL_FLASHEx_Erase(&EraseInitStruct, &PAGEError) != HAL_OK) {
-    // TODO : Halt, catch fire, explode 
-  }
-
-  const unsigned long long int* page_dword = page;
-  const unsigned long long int* buffer_dword = nvm_page_D;
-  while ((unsigned int)buffer_dword < ((unsigned int)nvm_page_D)+sizeof(nvm_page_D)) {
-    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, page_dword, *buffer_dword) != HAL_OK)
-    {
-      // TODO : Halt, catch fire, explode 
-    }
-    buffer_dword++;
-    page_dword++;
-  }
-
-  HAL_FLASH_Lock();
-}
-
-void nvm_write(void * dst_adr, void* src_adr, unsigned short src_len) {
-#define DST_ADR ((const unsigned char*) dst_adr)
-#define SRC_ADR ((const unsigned char*) src_adr)
-  const unsigned char* page;
-  unsigned short len;
-
-  if (src_len == 0) {
-    return;
-  }
-
-  // head, align dst_adr on a page if not
-  page = (const unsigned char*)(((unsigned int)DST_ADR) & ~(NVM_PAGE_SIZE_B-1));
-  if(page != DST_ADR) {
-    unsigned short page_off = (DST_ADR-page);
-    memmove(nvm_page_D, page, NVM_PAGE_SIZE_B);
-    len = NVM_PAGE_SIZE_B-page_off;
-    if (len > src_len) {
-      len = src_len;
-    }
-    memmove(nvm_page_D+page_off, SRC_ADR, len);
-    src_adr = SRC_ADR + len;
-    nvm_write_page(page);
-    src_len -= len;
-    page += NVM_PAGE_SIZE_B;
-  }
-
-  while(src_len > NVM_PAGE_SIZE_B) {
-    memmove(nvm_page_D, SRC_ADR, NVM_PAGE_SIZE_B);
-    src_adr = SRC_ADR + NVM_PAGE_SIZE_B;
-    nvm_write_page(page);
-    src_len -= NVM_PAGE_SIZE_B;
-    page += NVM_PAGE_SIZE_B;
-  }
-
-  if (src_len) {
-    memmove(nvm_page_D, page, NVM_PAGE_SIZE_B);
-    memmove(nvm_page_D, SRC_ADR, src_len);
-    nvm_write_page(page);
-  }
-}
-
-const unsigned char C_bootloader_version[] = {
-  'B','L','U','0','1','0','0'
-};
-
 
 void bootloader_erase_appconf(void) {
-  union {
-    bootloader_configuration_t ramconf;
-    unsigned char page_remaining[NVM_PAGE_SIZE_B];
-  } bootpage;
-  memset(&bootpage, 0, sizeof(NVM_PAGE_SIZE_B));
-
   // erase the whole page
-  nvm_write(&N_bootloader_configuration, &bootpage, NVM_PAGE_SIZE_B);
+  nvm_write(&N_bootloader_configuration, NULL, NVM_PAGE_SIZE_B);
   // ensure flushed to nvram
-  nvm_write_page_flush();
+  nvm_write_flush();
 }
 
 extern unsigned int _text;
-extern unsigned int _etext;
+extern unsigned int _eloadedtext;
 extern unsigned int _data;
 extern unsigned int _edata;
 
@@ -1216,7 +1036,7 @@ void bootloader_apdu_interp(void) {
 
   io_usb_hid_init();
 
-  nvm_write_page_address = NULL;
+  nvm_write_init();
 
   // DESIGN NOTE: the bootloader ignores the way APDU are fetched. The only goal is to retrieve APDU.
   // When APDU are to be fetched from multiple IOs, like NFC+USB+BLE, make sure the io_event is called with a 
@@ -1265,6 +1085,17 @@ void bootloader_apdu_interp(void) {
 
     // unauthenticated instruction
     switch (G_io_apdu_buffer[APDU_OFF_INS]) {
+      case INS_GET_VERSION:
+        tx = sizeof(VERSION);
+        G_io_apdu_buffer[0] = CONFIG_TARGET_ID>>24;
+        G_io_apdu_buffer[1] = CONFIG_TARGET_ID>>16;
+        G_io_apdu_buffer[2] = CONFIG_TARGET_ID>>8;
+        G_io_apdu_buffer[3] = CONFIG_TARGET_ID;
+        G_io_apdu_buffer[4] = sizeof(VERSION);
+        memcpy(G_io_apdu_buffer + 5, VERSION, sizeof(VERSION));
+        sw = 0x9000; goto error;
+
+
       case INS_VALIDATE_TARGET_ID:
         if (U4BE(G_io_apdu_buffer, 5) == CONFIG_TARGET_ID) {
           state = STATE_UNAUTH;
@@ -1308,12 +1139,6 @@ void bootloader_apdu_interp(void) {
 
       case INS_RESET:
         flags |= IO_RESET_AFTER_REPLIED;
-        sw = 0x9000; goto error;
-        break;
-
-      case INS_GET_VERSION:
-        tx = sizeof(C_bootloader_version);
-        os_memmove(G_io_apdu_buffer, &C_bootloader_version, sizeof(C_bootloader_version));
         sw = 0x9000; goto error;
         break;
 
@@ -1378,7 +1203,7 @@ void bootloader_apdu_interp(void) {
             unsigned int chunk_address = ((unsigned int)load_address + (unsigned int)U2BE(G_io_apdu_buffer, 6));
 
             // feil the session, won't accept further command
-            if (chunk_address <= &_etext) {
+            if (chunk_address < &_eloadedtext) {
               sw = 0x6984; goto error;
             }
 
@@ -1387,17 +1212,11 @@ void bootloader_apdu_interp(void) {
               bootloader_erase_appconf();
             }
 
-            // protect against bootloader self modification
-            // align to the next nvm page (could leave a blank page in between if already aligned)
-            if (chunk_address >= (unsigned int)&_text && chunk_address < ((unsigned int)&_etext + (unsigned int)&_edata - (unsigned int)&_data)&(~(NVM_PAGE_SIZE_B-1)) + NVM_PAGE_SIZE_B ) {
-              sw = 0x6985; goto error;
-            }
-
             nvm_write((unsigned char const *)chunk_address, G_io_apdu_buffer+8, rx-3);
             break; 
           }
           case SECUREINS_FLUSH: {
-            // not needed, will be done by the boot command // nvm_write_page_flush();
+            nvm_write_flush();
             break;
           }
           case SECUREINS_CRC: {
@@ -1432,7 +1251,7 @@ void bootloader_apdu_interp(void) {
             nvm_write(&N_bootloader_configuration, &bootpage, NVM_PAGE_SIZE_B);
 
             // ensure flushing the boot configuration into nvram
-            nvm_write_page_flush();
+            nvm_write_flush();
 
             // from now on, the application can boot, boot now
             flags |= IO_RESET_AFTER_REPLIED;
@@ -1506,7 +1325,7 @@ void bootloader_delegate_boot(uint32_t button_press_duration) {
     __asm("cpsid i");
 
     // jump failed (or loaded code returned) go to bootloader
-    nvm_write_page_address = NULL; // no write yet
+    nvm_write_init();
     bootloader_erase_appconf();
 
     // ensure to reset the display of the bootloader prompt
@@ -1618,6 +1437,17 @@ void display_l4_mode_touch(void) {
   */
 }
 
+void io_seproxyhal_check_no_command_status(void) {
+  // consume any residual data in RX, we can't possibly have received multiples tags when starting a reply.
+  while (io_seproxyhal_rx_available()) {
+    unsigned char buff[300]; // sorry stack
+    io_seproxyhal_recv(buff, sizeof(buff));
+    if (G_io_button.link_debug) {
+      screen_printf("Unexpected data: %.*H\n", (buff[1]<<8)|(buff[2]&0xFF), buff);
+    }
+  }
+}
+
 extern unsigned int g_pfnVectors;
 extern unsigned int g_pfnVectors_copy;
 
@@ -1665,7 +1495,7 @@ void main(unsigned int button_press_duration)
   G_io_ble.powered = 0;
 
   #ifdef DEBUG_BUTTON_LINK_DEBUG
-  G_io_button.link_debug = 0;
+  G_io_button.link_debug = DEBUG_BUTTON_LINK_DEBUG_INITIAL;
   #endif // DEBUG_BUTTON_LINK_DEBUG
 
 
@@ -1758,16 +1588,15 @@ void main(unsigned int button_press_duration)
 
   // initialize the button press duration
   // button_it configuration for press delay determination
-  GPIO_InitStruct.Pin = /*GPIO_PIN_3|*/GPIO_PIN_2;
+  GPIO_InitStruct.Pin =  GPIO_PIN_2;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   //GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  //GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+#ifdef DEBUG_BUTTON_NOT_REQUIRED_FOR_POWER_ON
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+#endif
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);  
-
-  // pwr
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, 1);
 
   // enable detection of release (in case releasing after power off duration)
   HAL_NVIC_EnableIRQ(EXTI2_IRQn);
@@ -1781,6 +1610,9 @@ void main(unsigned int button_press_duration)
   G_backlight_autooff_ms = 0;
   G_backlight_autodim_ms = 0;
   SYSTICK_power(1);
+
+  // pwr
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, 1);
 
   // initialize screen session and charge pump, but no disoplay yet
   screen_init(0);
@@ -1846,12 +1678,14 @@ void main(unsigned int button_press_duration)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   G_io_button.displayed_mode |= MODE_POWER_ON;
-#else
+
+#else // DEBUG_BUTTON_NOT_REQUIRED_FOR_POWER_ON
+
   // power off if not pushed long enough,
   if (!(G_io_button.displayed_mode & MODE_POWER_ON)) {
     harakiri();
   }
-#endif // DEBUG_BUTTON_NEVER_PUSHED
+#endif // DEBUG_BUTTON_NEVER_PUSHED || DEBUG_BUTTON_NOT_REQUIRED_FOR_POWER_ON
 
   G_io_button.pressed = 0;
   G_io_button.boot_moment = 0;
@@ -1882,7 +1716,7 @@ void main(unsigned int button_press_duration)
     || (G_io_button.displayed_mode & MODE_POWER_OFF) 
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
     ) {
-    G_io_usb.bootloader = 0;
+    G_io_apdu_protocol_enabled = 0;
     G_io_button.displayed_mode = 0;
 
     __asm("cpsie i");
@@ -1901,7 +1735,7 @@ void main(unsigned int button_press_duration)
   G_io_button.pressed = 0;
   G_io_button.displayed_mode = 0;
   #ifdef DEBUG_BUTTON_LINK_DEBUG
-  G_io_button.link_debug = 0;
+  G_io_button.link_debug = DEBUG_BUTTON_LINK_DEBUG_INITIAL;
   #endif // DEBUG_BUTTON_LINK_DEBUG
 
 
@@ -1931,7 +1765,7 @@ void main(unsigned int button_press_duration)
   
   /*
   screen_printf("Test\nString\n value ");
-  screen_printf("azertyuiopqsdfghjklmwxcvbn,;:!?./§ù*%%µ12345678901234567890)=°+~#{[|`\\^$@]}ABCDEFGHIJKLMNOPQRSTUVWXYZ\n%04d\nBOOT SCREEN TEST\n",2763);
+  screen_printf("azertyuiopqsdfghjklmwxcvbn,;:!?./????*%%??12345678901234567890)=??+~#{[|`\\^$@]}ABCDEFGHIJKLMNOPQRSTUVWXYZ\n%04d\nBOOT SCREEN TEST\n",2763);
   
   screen_printf("%.*H\n", 8, g_pcHex);
   */
@@ -1952,7 +1786,7 @@ reboot:
 
 #ifdef HAVE_BL
 
-  G_io_usb.bootloader = 1;
+  G_io_apdu_protocol_enabled = 1;
   
   HAL_Delay(500);
 
@@ -1973,15 +1807,10 @@ reboot:
   bootloader_apdu_interp();
 
 #else
-  G_io_usb.bootloader = 0;
-
-  // default is BLE managed asynch by the SE
-  G_io_ble_apdu_protocol_enabled = 0;
-#ifndef HAVE_TMP_U2F  
-  BLE_power(0, NULL);
-#else  
-  BLE_power(0, NULL, 0);
-#endif  
+  // default is BLE/USB managed asynch by the SE
+  G_io_apdu_protocol_enabled = 0;
+ 
+  BLE_power(0, NULL); 
   //KBD_power(0);
   // enable the UI
   //UI_led_power(0);
@@ -2002,22 +1831,20 @@ reboot:
 
     const char recovery_name [] = {AD_TYPE_COMPLETE_LOCAL_NAME,'L','e','d','g','e','r',' ', 'B','l','u','e', ' ','F','A','B','\0'};
     // request standard ISO apdu transport between the SE and the MCU instead of raw SPI packet (to save overhead)
-    G_io_ble_apdu_protocol_enabled = 1;
+    G_io_apdu_protocol_enabled = 1;
 
+#ifdef HAVE_BLE_MCU
     // ######### ENABLE BLE TRANSPORT
     // await for BLE connection to process APDU through ST ISO bootloader
     //BLE_power(0, recovery_name);
-#ifndef HAVE_TMP_U2F    
+
     BLE_power(1, recovery_name);
-#else    
-    BLE_power(1, recovery_name, PROFILE_LEDGER);
-#endif    
+#endif // HAVE_BLE_MCU
 
     HAL_Delay(500);
     display_l4_mode("Ledger Blue FAB", "MANUFACTURER MODE");
 
     // ######### ENABLE USB TRANSPORT
-    G_io_usb.bootloader = 1; // use the BL transport for apdu over usbhid
     /* Init Device Library */
     USBD_Init(&USBD_Device, &HID_Desc, 0);
     /* Register the HID class */
@@ -2030,18 +1857,15 @@ reboot:
 
     while(1) {
 
+#ifdef HAVE_BLE_MCU
       // stop ble upon disconnection
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_DISCONNECT) {
         G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BLE_DISCONNECT;
         
-#ifndef HAVE_TMP_U2F    
         BLE_power(0, NULL);
-        BLE_power(1, recovery_name);
-#else    
-        BLE_power(0, NULL, 0);
-        BLE_power(1, recovery_name, PROFILE_LEDGER);
-#endif    
+        BLE_power(1, recovery_name); 
       }
+#endif // HAVE_BLE_MCU
 
       if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BUTTON) {
         G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BUTTON;
@@ -2067,6 +1891,7 @@ reboot:
         display_l4_mode_touch();
       }
 
+#ifdef HAVE_BLE_MCU
       // check for an apdu via ble
       if (G_io_ble.apdu_available) {
         backlight_enable(1);
@@ -2100,6 +1925,7 @@ reboot:
           SCB->ICSR |= 1<<28;
         }
       }
+#endif // HAVE_BLE_MCU
 
       // check for an apdu via usb
       if ((io_exchange(CHANNEL_APDU, 0))) {
@@ -2127,11 +1953,13 @@ reboot:
     NVIC_SystemReset();
   }
 
-  // session start the SE
+  // Small delay for baudrate to be taken into account in the SE
+  HAL_Delay(2);
 
+  // session start the SE
   G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_SESSION_START_EVENT;
   G_io_seproxyhal_buffer[1] = 0;
-  G_io_seproxyhal_buffer[2] = 1;
+  G_io_seproxyhal_buffer[2] = 1+4+1+sizeof(VERSION);
   // ask SE recovery when button press is longer than the required delay
 #ifdef FORCE_ST31_RECOVERY
   G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_SESSION_START_EVENT_RECOVERY; 
@@ -2151,7 +1979,31 @@ reboot:
   G_io_seproxyhal_buffer[3] = 0;
 #endif // DEBUG_BUTTON_ALWAYS_PUSHED
 
-  io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
+
+  // compute the feature flags
+  unsigned int features = 0
+                        | SEPROXYHAL_TAG_SESSION_START_EVENT_FEATURE_USB
+#ifndef NANOS_DEVKIT
+#ifdef HAVE_BLE
+                        | SEPROXYHAL_TAG_SESSION_START_EVENT_FEATURE_BLE         
+#endif // HAVE_BLE
+                        | SEPROXYHAL_TAG_SESSION_START_EVENT_FEATURE_TOUCH       
+                        | SEPROXYHAL_TAG_SESSION_START_EVENT_FEATURE_SCREEN_BIG
+#else // NANOS_DEVKIT
+                        | SEPROXYHAL_TAG_SESSION_START_EVENT_FEATURE_SCREEN_SML
+#endif // NANOS_DEVKIT
+                        | (1<<SEPROXYHAL_TAG_SESSION_START_EVENT_FEATURE_BUTTON_COUNT_POS)
+                        ;
+  G_io_seproxyhal_buffer[4] = (features>>24);
+  G_io_seproxyhal_buffer[5] = (features>>16);
+  G_io_seproxyhal_buffer[6] = (features>>8);
+  G_io_seproxyhal_buffer[7] = (features>>0);
+
+  // version
+  G_io_seproxyhal_buffer[8] = sizeof(VERSION);
+  memcpy(G_io_seproxyhal_buffer+8+1, VERSION, sizeof(VERSION));
+
+  io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3+1+4+1+sizeof(VERSION));
   G_io_seproxyhal_state = WAIT_COMMAND;
 
   volatile unsigned short rx;
@@ -2172,6 +2024,7 @@ reboot:
 
   // init unsecure firm signature check
   G_io_unsec_chunk.offset = 0;
+  USBD_Device.pData = NULL;
 
   for(;;) {     
     switch (G_io_seproxyhal_state) {
@@ -2191,18 +2044,6 @@ reboot:
 		  
           switch(G_io_seproxyhal_buffer[0]) {
             default:
-            case SEPROXYHAL_TAG_BLE_RADIO_POWER:
-            case SEPROXYHAL_TAG_BLE_NOTIFY_INDICATE_STATUS:
-            case SEPROXYHAL_TAG_SCREEN_POWER:
-            case SEPROXYHAL_TAG_MORE_TIME:
-            case SEPROXYHAL_TAG_DEVICE_OFF:
-            case SEPROXYHAL_TAG_SE_POWER_OFF:
-            case SEPROXYHAL_TAG_SET_TICKER_INTERVAL:
-            case SEPROXYHAL_TAG_SCREEN_DISPLAY_STATUS: 
-            case SEPROXYHAL_TAG_NFC_READ_RESPONSE_STATUS:
-            case SEPROXYHAL_TAG_USB_CONFIG:
-            case SEPROXYHAL_TAG_USB_EP_PREPARE:
-            case SEPROXYHAL_TAG_GO_BOOTLOADER:
               #ifdef DEBUG_BUTTON_LINK_DEBUG
               if (G_io_button.link_debug) {
                 screen_printf("unexpected tlv: %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
@@ -2229,8 +2070,10 @@ reboot:
           }
         }
 
+#ifdef HAVE_TOUCHPANEL
         // check for touch events (i2c touchscreen is somewhat interacting with usart)
         screen_update_touch_event();
+#endif // HAVE_TOUCHPANEL
 
         // ready to send the next incoming event (BLE/NFC/TOUCH/WATCHDOG/USB etc)
         if (G_io_seproxyhal_events) {
@@ -2256,6 +2099,10 @@ reboot:
             #define UNSEC_TOTAL_LENGTH (&_esignature-&_signed)
             #define UNSEC_SIGNED_LENGTH (&_esigned-&_signed)
 
+#ifdef TEST_WRONG_MCU_SIGNATURE
+              G_io_unsec_chunk.size = 0x24;
+#endif
+
             G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_UNSEC_CHUNK_EVENT;
             G_io_seproxyhal_buffer[1] = G_io_unsec_chunk.size>>8;
             G_io_seproxyhal_buffer[2] = G_io_unsec_chunk.size;
@@ -2266,10 +2113,14 @@ reboot:
             // first packet encode the total length on a U4BE
             if (G_io_unsec_chunk.offset==0) {
               G_io_unsec_chunk.size-=4;
+#ifdef TEST_WRONG_MCU_SIGNATURE
+              G_io_unsec_chunk.size = 0x20;
+#else
               G_io_seproxyhal_buffer[0] = UNSEC_SIGNED_LENGTH>>24;
               G_io_seproxyhal_buffer[1] = UNSEC_SIGNED_LENGTH>>16;
               G_io_seproxyhal_buffer[2] = UNSEC_SIGNED_LENGTH>>8;
               G_io_seproxyhal_buffer[3] = UNSEC_SIGNED_LENGTH;
+#endif
               io_seproxyhal_send(G_io_seproxyhal_buffer, 4);
             }
 
@@ -2284,93 +2135,34 @@ reboot:
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;            
           }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE) {
-            // say ok to the SE
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_NOTIFY_INDICATE_EVENT;
-            G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 1;
-            G_io_seproxyhal_buffer[3] = G_io_ble.notify_indicate_char;
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
-            consumed_events = SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE;
-            G_io_seproxyhal_state = WAIT_COMMAND;
-            goto consume;
-          }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_CONNECT) {
-            PRINTF("BC. ");
-            
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_CONNECTION_EVENT;
-            G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 1;
-            G_io_seproxyhal_buffer[3] = 1; // conn
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
-
-            consumed_events = SEPROXYHAL_EVENT_BLE_CONNECT;
-            G_io_seproxyhal_state = WAIT_COMMAND;
-            goto consume;
-          }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_DISCONNECT) {
-            PRINTF("BD. ");
-            
-
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_CONNECTION_EVENT;
-            G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 1;
-            G_io_seproxyhal_buffer[3] = 0; // disconn
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
-
-            consumed_events = SEPROXYHAL_EVENT_BLE_DISCONNECT;
-            G_io_seproxyhal_state = WAIT_COMMAND;
-            goto consume;
-          }
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_WRITE) {
             //PRINTF("BW. ");
             // forge BLE packet to the SE
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_WRITE_REQUEST_EVENT;
-            G_io_seproxyhal_buffer[1] = (G_io_ble.last_write_size+3)>>8;
-            G_io_seproxyhal_buffer[2] = (G_io_ble.last_write_size+3);
-            for (i = 0; i < IO_SEPROXYHAL_BLE_HANDLE_MAXCOUNT; i++) {
-              if (G_io_seproxyhal_ble_handles[i] == G_io_ble.last_write_attr_handle) {
-                G_io_seproxyhal_buffer[3] = i;
-                break;
-              }
-            }
-            G_io_seproxyhal_buffer[4] = G_io_ble.last_write_size>>8;
-            G_io_seproxyhal_buffer[5] = G_io_ble.last_write_size;
+            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLUENRG_RECV_EVENT;
+            G_io_seproxyhal_buffer[1] = (G_io_ble.bluenrg_buffer_size)>>8;
+            G_io_seproxyhal_buffer[2] = (G_io_ble.bluenrg_buffer_size);
 
             // send in 2 packets
-            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3+3);
-            io_seproxyhal_send(G_io_ble.last_write_buffer, G_io_ble.last_write_size);
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
+            #ifdef DEBUG_BUTTON_LINK_DEBUG
+            if (G_io_button.link_debug >= 2) {
+              screen_printf("> %.*H\n", G_io_ble.bluenrg_buffer_size, G_io_ble.bluenrg_buffer);
+            }
+            #endif // DEBUG_BUTTON_LINK_DEBUG
+            io_seproxyhal_send(G_io_ble.bluenrg_buffer, G_io_ble.bluenrg_buffer_size);
 
+        
             // switch to command state until the SE replies a general status
             G_io_seproxyhal_state = WAIT_COMMAND;
-            // validate write on the blue tooth media, to avoid overwriting the previous value
-            BLE_accept_previous_write();
-            consumed_events = SEPROXYHAL_EVENT_BLE_WRITE;
-            goto consume;
-          }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_READ) {
-            //PRINTF("BR. ");
-            for (i = 0; i < IO_SEPROXYHAL_BLE_HANDLE_MAXCOUNT; i++) {
-              if (G_io_seproxyhal_ble_handles[i] == G_io_ble.last_read_attr_handle) {
-                G_io_seproxyhal_ble_last_read_request_handle = i;
-                break;
-              }
-            }
-            G_io_seproxyhal_state = WAIT_BLE_READ_DATA;
-            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_BLE_READ_REQUEST_EVENT;
-            // TODO send the read event to the SE
-            consumed_events = SEPROXYHAL_EVENT_BLE_READ;
-            goto consume;
-          }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_NOTIFIFICATION_REGISTER) {
-            PRINTF("NR. ");
-            consumed_events = SEPROXYHAL_EVENT_BLE_NOTIFIFICATION_REGISTER;
-            goto consume;
-          }
-          if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_BLE_NOTIFIFICATION_UNREGISTER) {
-            PRINTF("NU. ");
-            consumed_events = SEPROXYHAL_EVENT_BLE_NOTIFIFICATION_UNREGISTER;
-            goto consume;
+            
+            // avoid packet race (consumed after the next one is received => missing next packet)
+            __asm("cpsid i");
+            G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BLE_WRITE;
+            __asm("cpsie i");
+
+            // consume the forwarded packet, and retrieve the next one if any available.
+            BlueNRG_Consumed();
+            goto consumed;
           }
 
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_USB_RESET) {
@@ -2430,7 +2222,7 @@ reboot:
             //PRINTF("UX. ");
             // process in before out to ensure device holds the DoS way
             if (G_io_usb.ep_in) {
-              for (epnum=0; epnum<MAX_USB_ENDPOINTS; epnum++) {
+              for (epnum=0; epnum<MAX_USB_BIDIR_ENDPOINTS; epnum++) {
                 if (G_io_usb.ep_in & (1<<epnum)) {
                   G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_USB_EP_XFER_EVENT;
                   G_io_seproxyhal_buffer[1] = (3)>>8;
@@ -2459,7 +2251,7 @@ reboot:
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_USB_XFER_OUT) {
             unsigned char epnum;
             if (G_io_usb.ep_out) {
-              for (epnum=0; epnum<MAX_USB_ENDPOINTS; epnum++) {
+              for (epnum=0; epnum<MAX_USB_BIDIR_ENDPOINTS; epnum++) {
                 if (G_io_usb.ep_out & (1<<epnum)) {
                   unsigned char len = G_io_usb.ep_out_len[epnum];
                   G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_USB_EP_XFER_EVENT;
@@ -2490,15 +2282,17 @@ reboot:
             goto consume;
           }
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_USB_SOF) {
-            //PRINTF("UF. ");
             consumed_events = SEPROXYHAL_EVENT_USB_SOF;
+            /*
+            //PRINTF("UF. ");
             G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_USB_EVENT;
             G_io_seproxyhal_buffer[1] = 0;
-            G_io_seproxyhal_buffer[2] = 1;
+            G_io_seproxyhal_buffer[2] = 1
             G_io_seproxyhal_buffer[3] = SEPROXYHAL_TAG_USB_EVENT_SOF;
 
             io_seproxyhal_send_start(G_io_seproxyhal_buffer, 4);
             G_io_seproxyhal_state = WAIT_COMMAND;
+            */
             goto consume;
           }
 
@@ -2521,6 +2315,7 @@ reboot:
             goto consume;
           }
 
+#ifdef HAVE_TOUCHPANEL
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_RELEASE) {
             consumed_events = SEPROXYHAL_EVENT_RELEASE;
            
@@ -2564,6 +2359,7 @@ reboot:
             G_io_seproxyhal_state = WAIT_COMMAND;
             goto consume;
           }
+#endif // HAVE_TOUCHPANEL
 
 #ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
           if (G_io_seproxyhal_events & SEPROXYHAL_EVENT_DISPLAYED) {
@@ -2588,7 +2384,7 @@ reboot:
             G_io_seproxyhal_buffer[2] = 0; 
 
             io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
-            G_io_seproxyhal_state = WAIT_COMMAND;
+            G_io_seproxyhal_state = WAIT_COMMAND_TICKER;
             goto consume;
           }
 
@@ -2614,6 +2410,7 @@ reboot:
 
       case WAIT_BLE_READ_DATA:
       case WAIT_COMMAND:
+      case WAIT_COMMAND_TICKER:
         // avoid polling, stay low power
         rx = io_seproxyhal_rx_available();
 
@@ -2633,7 +2430,7 @@ reboot:
         backlight_enable(1);
 
 #ifdef DEBUG_BUTTON_LINK_DEBUG
-        if (G_io_button.link_debug >= 2) {
+        if (G_io_button.link_debug >= 2 && G_io_seproxyhal_state != WAIT_COMMAND_TICKER) {
           screen_printf("< %.*H\n", MIN(l+3, 256), G_io_seproxyhal_buffer);
         }
 #endif // DEBUG_BUTTON_LINK_DEBUG
@@ -2642,43 +2439,46 @@ reboot:
           case SEPROXYHAL_TAG_BLE_RADIO_POWER:
             PRINTF("BO. ");
             // turn BLE ON or OFF, use the last defined service. (make discoverable)
-#ifndef HAVE_TMP_U2F            
             BLE_power(G_io_seproxyhal_buffer[3]&0x2, NULL); // if not advertising, then don't turn on
-#else
-            BLE_power(G_io_seproxyhal_buffer[3]&0x2, NULL, (G_io_seproxyhal_buffer[2] > 1 ? G_io_seproxyhal_buffer[4] : PROFILE_LEDGER)); // if not advertising, then don't turn on
-#endif
-            // set default handles
-            memset(G_io_seproxyhal_ble_handles, 0, sizeof(G_io_seproxyhal_ble_handles));
-            G_io_seproxyhal_ble_handles[1] = G_io_ble.tx_characteristic_handle ;
-            G_io_seproxyhal_ble_handles[2] = G_io_ble.rx_characteristic_handle + 1;
-            break;
-          case SEPROXYHAL_TAG_BLE_NOTIFY_INDICATE_STATUS:
-            //PRINTF("BI. ");
-            if (l > 3) {
-              // will only return when data has been propagated. timeout => watchdog
-              BLE_send(G_io_seproxyhal_ble_handles[G_io_seproxyhal_buffer[3]], &G_io_seproxyhal_buffer[6], l-3);
-            }
-            G_io_ble.notify_indicate_char = G_io_seproxyhal_buffer[3];
 
-            __asm("cpsid i");
-            G_io_seproxyhal_events |= SEPROXYHAL_EVENT_BLE_NOTIFY_INDICATE;
-            __asm("cpsie i");
-            G_io_seproxyhal_state = WAIT_EVENT;
-            // stay in command mode
+            /*
+            if (G_io_seproxyhal_buffer[3]&0x02) {
+              while (BlueNRG_SPI_Read_All(G_io_seproxyhal_buffer, sizeof(G_io_seproxyhal_buffer)) == 0);
+            }
+            */
+            if (G_io_seproxyhal_buffer[3]&0x02) {
+              // wait until EVT_BLUE_INITIALIZED which ends up the BLUENRG initialization
+              while (!G_io_ble.bluenrg_buffer_size);
+              // consume it
+              __asm("cpsid i");
+              G_io_seproxyhal_events &= ~SEPROXYHAL_EVENT_BLE_WRITE;
+              G_io_ble.bluenrg_buffer_size = 0;
+              __asm("cpsie i");
+            }
             break;
+          case SEPROXYHAL_TAG_BLUENRG_SEND: {
+            // for the first packet, it's mandatory
+            unsigned char ble_write_retry = 3;
+            // CS_flag = G_io_seproxyhal_buffer[3]; // (in case splitting packet)
+            // send the frame to the BLUENRG
+            while (BlueNRG_SPI_Write(G_io_seproxyhal_buffer+4, NULL, l-1, 0) != 0 && ble_write_retry--) {
+              // error ? => reply won't come ! that's it
+            }
+
+            // stay in command mode (a display could be issued afterwards)
+            break;
+          }
           case SEPROXYHAL_TAG_SCREEN_POWER:
             // TODO PWN off
             break;
           case SEPROXYHAL_TAG_MORE_TIME:
             // TODO add watchdog time
             break;
+
+          case SEPROXYHAL_TAG_SE_POWER_OFF:
           case SEPROXYHAL_TAG_DEVICE_OFF:
             harakiri();
             break;
-
-          case SEPROXYHAL_TAG_SE_POWER_OFF:
-            // reset the SE using a power sequence, and go back to interpretation of the ATR <=> system reset
-            goto reboot;
 
           case SEPROXYHAL_TAG_SET_TICKER_INTERVAL: {
             PRINTF("TK ");
@@ -2687,6 +2487,7 @@ reboot:
               G_io_seproxyhal_ticker_interval_ms = (G_io_seproxyhal_buffer[3]<<8)|(G_io_seproxyhal_buffer[4]&0xFF);
               // when interval is 0 then ticker is disabled
               G_io_seproxyhal_ticker_enabled = (G_io_seproxyhal_ticker_interval_ms != 0);
+              G_io_seproxyhal_ticker_current_ms = 0; // reset interval
             }
             break;
           }
@@ -2706,6 +2507,7 @@ reboot:
             // stay in command mode
             break;
           }
+
           case SEPROXYHAL_TAG_SCREEN_DISPLAY_STATUS: {
             //PRINTF("CD. ");
             if (l < sizeof(bagl_component_t)) {
@@ -2720,8 +2522,15 @@ reboot:
 
               // little endian to little endian, cross finger and hope for same fields alignment
               memcpy(&bagl_e, &G_io_seproxyhal_buffer[3], MIN(sizeof(bagl_e), l));
+
+#ifdef NANOS_DEVKIT
+              bagl_e.c.x += 16;
+              bagl_e.c.y += 16;
+#endif
+
               bagl_l = l;
 
+#ifdef HAVE_BLE_MCU
               // magic replace if necessary
               if (((l - sizeof(bagl_component_t)) >= sizeof(ESC_DEVICE_NAME) - 1) && 
                   (memcmp(&G_io_seproxyhal_buffer[3+sizeof(bagl_component_t)], ESC_DEVICE_NAME, sizeof(ESC_DEVICE_NAME) - 1) == 0)) {
@@ -2731,10 +2540,12 @@ reboot:
                   bagl_draw_with_context(&bagl_e.c, DEVICE_NAME_NA, strlen(DEVICE_NAME_NA), BAGL_ENCODING_LATIN1);                
                 }
               }
-              else {
+              else 
+#endif // HAVE_BLE_MCU
+              {
                 bagl_draw_with_context(&bagl_e.c, &G_io_seproxyhal_buffer[3+sizeof(bagl_component_t)], l-sizeof(bagl_component_t), BAGL_ENCODING_LATIN1);
               }
-            }
+            }           
             #ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
             __asm("cpsid i");
             G_io_seproxyhal_events |= SEPROXYHAL_EVENT_DISPLAYED;
@@ -2750,15 +2561,26 @@ reboot:
             // stay in command state
             break;
           }
-          case SEPROXYHAL_TAG_NFC_READ_RESPONSE_STATUS:
-            if (G_io_seproxyhal_state != WAIT_BLE_READ_DATA) {
-              continue;
-            }            
-            BLE_send(G_io_seproxyhal_ble_last_read_request_handle, &G_io_seproxyhal_buffer[4], G_io_seproxyhal_buffer[0] - 4);
-            // this is the last command
+          
+          case SEPROXYHAL_TAG_SCREEN_ANIMATION_STATUS: {
+            // nothing to animate, consider it done
+              
+            #ifdef ASYNCH_DISPLAY_PROCESSED_EVENT
+            __asm("cpsid i");
+            G_io_seproxyhal_events |= SEPROXYHAL_EVENT_DISPLAYED;
+            __asm("cpsie i");
             G_io_seproxyhal_state = WAIT_EVENT;
-            G_seproxyhal_event_timeout_enable = 0;
+            #else // ASYNCH_DISPLAY_PROCESSED_EVENT
+            // reply display processed event
+            G_io_seproxyhal_buffer[0] = SEPROXYHAL_TAG_DISPLAY_PROCESSED_EVENT;
+            G_io_seproxyhal_buffer[1] = 0;
+            G_io_seproxyhal_buffer[2] = 0;
+            io_seproxyhal_send_start(G_io_seproxyhal_buffer, 3);
+            #endif // ASYNCH_DISPLAY_PROCESSED_EVENT
+            // stay in command state
             break;
+          }
+          
 
           case SEPROXYHAL_TAG_GENERAL_STATUS:
             //PRINTF("END ");
@@ -2773,9 +2595,11 @@ reboot:
                   G_io_seproxyhal_state = WAIT_EVENT;
                   G_seproxyhal_event_timeout_enable = 0;
                   break;
+                /*
                 case SEPROXYHAL_TAG_GENERAL_STATUS_MORE_COMMAND:
                   // card has replied and is indicating it will be speaking later on
                   G_seproxyhal_event_timeout_enable = 0;
+                */
                 default:
                   // remain in wait command
                   break;
@@ -2792,6 +2616,7 @@ reboot:
 
                 // startup the low level usb stack
                 USBD_Device.pClass = NULL;
+                USBD_Device.pData = NULL;
                 USBD_LL_Init(&USBD_Device);
                 USBD_LL_Start(&USBD_Device);
 
@@ -2799,38 +2624,44 @@ reboot:
                 //HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
                 break;
               case SEPROXYHAL_TAG_USB_CONFIG_DISCONNECT:
-                USBD_LL_Stop(&USBD_Device); 
+                if (USBD_Device.pData){
+                  USBD_LL_Stop(&USBD_Device); 
+                }
                 break;
               case SEPROXYHAL_TAG_USB_CONFIG_ADDR:
-                USBD_LL_SetUSBAddress(&USBD_Device, G_io_seproxyhal_buffer[4]);
+                if (USBD_Device.pData){
+                  USBD_LL_SetUSBAddress(&USBD_Device, G_io_seproxyhal_buffer[4]);
+                }
                 break;
               case SEPROXYHAL_TAG_USB_CONFIG_ENDPOINTS:
-                // configure all endpoints
-                for(l=0;l<G_io_seproxyhal_buffer[4];l++) {
-                  if (G_io_seproxyhal_buffer[5+l*3+1] == SEPROXYHAL_TAG_USB_CONFIG_TYPE_DISABLED) {
-                    // still skip the other bytes
-                    USBD_LL_CloseEP(&USBD_Device, G_io_seproxyhal_buffer[5+l*3]);
-                  }
-                  else {
-                    uint8_t ep_type = -1;
-                    switch(G_io_seproxyhal_buffer[5+l*3+1]) {
-                      case SEPROXYHAL_TAG_USB_CONFIG_TYPE_CONTROL:
-                        ep_type = USBD_EP_TYPE_CTRL;
-                        break;
-                      case SEPROXYHAL_TAG_USB_CONFIG_TYPE_ISOCHRONOUS:
-                        ep_type = USBD_EP_TYPE_ISOC;
-                        break;
-                      case SEPROXYHAL_TAG_USB_CONFIG_TYPE_BULK:
-                        ep_type = USBD_EP_TYPE_BULK;
-                        break;
-                      case SEPROXYHAL_TAG_USB_CONFIG_TYPE_INTERRUPT:
-                        ep_type = USBD_EP_TYPE_INTR;
-                        break;
+                if (USBD_Device.pData){
+                  // configure all endpoints
+                  for(l=0;l<G_io_seproxyhal_buffer[4];l++) {
+                    if (G_io_seproxyhal_buffer[5+l*3+1] == SEPROXYHAL_TAG_USB_CONFIG_TYPE_DISABLED) {
+                      // still skip the other bytes
+                      USBD_LL_CloseEP(&USBD_Device, G_io_seproxyhal_buffer[5+l*3]);
                     }
-                    USBD_LL_OpenEP(&USBD_Device, 
-                                   G_io_seproxyhal_buffer[5+l*3], 
-                                   ep_type, 
-                                   G_io_seproxyhal_buffer[5+l*3+2]);
+                    else {
+                      uint8_t ep_type = -1;
+                      switch(G_io_seproxyhal_buffer[5+l*3+1]) {
+                        case SEPROXYHAL_TAG_USB_CONFIG_TYPE_CONTROL:
+                          ep_type = USBD_EP_TYPE_CTRL;
+                          break;
+                        case SEPROXYHAL_TAG_USB_CONFIG_TYPE_ISOCHRONOUS:
+                          ep_type = USBD_EP_TYPE_ISOC;
+                          break;
+                        case SEPROXYHAL_TAG_USB_CONFIG_TYPE_BULK:
+                          ep_type = USBD_EP_TYPE_BULK;
+                          break;
+                        case SEPROXYHAL_TAG_USB_CONFIG_TYPE_INTERRUPT:
+                          ep_type = USBD_EP_TYPE_INTR;
+                          break;
+                      }
+                      USBD_LL_OpenEP(&USBD_Device, 
+                                     G_io_seproxyhal_buffer[5+l*3], 
+                                     ep_type, 
+                                     G_io_seproxyhal_buffer[5+l*3+2]);
+                    }
                   }
                 }
                 break;
@@ -2838,34 +2669,38 @@ reboot:
             break;
 
           case SEPROXYHAL_TAG_USB_EP_PREPARE:
-            switch (G_io_seproxyhal_buffer[4]) { 
-              case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_UNSTALL:
-                USBD_LL_ClearStallEP(&USBD_Device, G_io_seproxyhal_buffer[3]);
-                break;
+            if (USBD_Device.pData){
+              switch (G_io_seproxyhal_buffer[4]) { 
+                case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_UNSTALL:
+                  USBD_LL_ClearStallEP(&USBD_Device, G_io_seproxyhal_buffer[3]);
+                  break;
 
-              case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_STALL:
-                USBD_LL_StallEP(&USBD_Device, G_io_seproxyhal_buffer[3]);
-                break;
+                case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_STALL:
+                  USBD_LL_StallEP(&USBD_Device, G_io_seproxyhal_buffer[3]);
+                  break;
 
-              case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_IN:
-                USBD_LL_Transmit(&USBD_Device, 
-                                 G_io_seproxyhal_buffer[3], 
-                                 G_io_seproxyhal_buffer+6, 
-                                 G_io_seproxyhal_buffer[5]);
-                break;
+                case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_IN:
+                  USBD_LL_Transmit(&USBD_Device, 
+                                   G_io_seproxyhal_buffer[3], 
+                                   G_io_seproxyhal_buffer+6, 
+                                   G_io_seproxyhal_buffer[5]);
+                  break;
 
-              case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_SETUP:
-              case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_OUT:
-                USBD_LL_PrepareReceive(&USBD_Device, 
-                                       G_io_seproxyhal_buffer[3], 
-                                       (G_io_seproxyhal_buffer[5]>MAX_USB_ENDPOINT_SIZE?MAX_USB_ENDPOINT_SIZE:G_io_seproxyhal_buffer[5]));
-                break;
+                case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_SETUP:
+                case SEPROXYHAL_TAG_USB_EP_PREPARE_DIR_OUT:
+                  USBD_LL_PrepareReceive(&USBD_Device, 
+                                         G_io_seproxyhal_buffer[3], 
+                                         (G_io_seproxyhal_buffer[5]>MAX_USB_ENDPOINT_SIZE?MAX_USB_ENDPOINT_SIZE:G_io_seproxyhal_buffer[5]));
+                  break;
+              }
             }
             break;
 
-          case SEPROXYHAL_TAG_GO_BOOTLOADER:
-            // return to bootloader
+#ifdef SEPROXYHAL_TAG_MCU_BOOTLOADER
+          case SEPROXYHAL_TAG_MCU_BOOTLOADER:
+            // return to bootloader, permanently
             return;
+#endif // SEPROXYHAL_TAG_MCU_BOOTLOADER
 
           case SEPROXYHAL_TAG_UNSEC_CHUNK_READ:
             // reset the unsec offset read if requested
@@ -2922,7 +2757,7 @@ reboot:
   #endif // HAVE_BL
 
   // shall never be reached
-  for(;;);
+  NVIC_SystemReset();
 }
 
 
@@ -2932,10 +2767,14 @@ void io_seproxyhal_send_start(unsigned char * buffer, unsigned short length) {
   G_seproxyhal_event_timeout_enable = 1;
   memmove(G_seproxyhal_event_timeout_header, buffer, 3);
 #ifdef DEBUG_BUTTON_LINK_DEBUG
-  if (G_io_button.link_debug >= 2) {
+  // don't display ticker event to avoid log pollution
+  if (G_io_button.link_debug >= 2 && buffer[0] != SEPROXYHAL_TAG_TICKER_EVENT) {
     screen_printf("> %.*H\n", MIN(length, 256), buffer);
   }
 #endif // DEBUG_BUTTON_LINK_DEBUG
+
+  io_seproxyhal_check_no_command_status();
+
   io_seproxyhal_send(buffer, length);
 }
 

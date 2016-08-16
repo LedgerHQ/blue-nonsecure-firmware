@@ -37,11 +37,20 @@
   
 /* Includes ------------------------------------------------------------------*/
 #include "stm32_bluenrg_ble.h"
-#include "stm32l4xx_nucleo_bluenrg.h"
 
 #define HEADER_SIZE 5
 #define MAX_BUFFER_SIZE 255
-#define TIMEOUT_DURATION -1 //15
+#define TIMEOUT_DURATION 15
+
+
+#ifdef HAVE_BLE_SPI_DEBUG
+#define DEBUG_SPI_SIZE 1024
+volatile int debug_ble_spi_idx = 0;
+volatile char debug_ble_spi_buf[DEBUG_SPI_SIZE];
+void DEBUG_BLE_SPI(unsigned char x) { debug_ble_spi_buf[debug_ble_spi_idx] = x ; if(debug_ble_spi_idx < DEBUG_SPI_SIZE-1) debug_ble_spi_idx++; }
+#else
+#define DEBUG_BLE_SPI(x)
+#endif // HAVE_BLE_SPI_DEBUG
 
 #define ENABLE_SPI_FIX
 
@@ -114,9 +123,7 @@ uint8_t BlueNRG_SPI_Read_All(uint8_t *buffer,
   //us150Delay();
 
   /* Read the header */  
-  if (HAL_SPI_TransmitReceive(&SpiHandle, header_master, header_slave, HEADER_SIZE, TIMEOUT_DURATION) != HAL_OK) {
-    for(;;);
-  }
+  HAL_SPI_TransmitReceive(&SpiHandle, header_master, header_slave, HEADER_SIZE, TIMEOUT_DURATION);
    
   
   if (header_slave[0] == 0x02) {
@@ -132,10 +139,16 @@ uint8_t BlueNRG_SPI_Read_All(uint8_t *buffer,
       
       // we're reading in buffer, first wipe it out, and fill it with data from the bus
       memset(buffer, 0xFF, byte_count);
-      if (HAL_SPI_TransmitReceive(&SpiHandle, buffer, buffer, byte_count, TIMEOUT_DURATION) != HAL_OK) {
-        for(;;);
-      }
+      HAL_SPI_TransmitReceive(&SpiHandle, buffer, buffer, byte_count, TIMEOUT_DURATION);
       len = byte_count;
+
+#ifdef HAVE_BLE_SPI_DEBUG
+      DEBUG_BLE_SPI(byte_count);
+      while(byte_count--) {
+        DEBUG_BLE_SPI(*buffer++);
+      }
+#endif // HAVE_BLE_SPI_DEBUG
+
       /*
       for (len = 0; len < byte_count; len++){
         HAL_SPI_TransmitReceive(&SpiHandle, &char_ff, (uint8_t*)&read_char, 1, TIMEOUT_DURATION);
@@ -204,9 +217,7 @@ uint8_t BlueNRG_SPI_Write(uint8_t* data1,
   //us150Delay();
   
   /* Exchange header */  
-  if (HAL_SPI_TransmitReceive(&SpiHandle, header_master, header_slave, HEADER_SIZE, TIMEOUT_DURATION) != HAL_OK) {
-    for(;;);
-  }
+  HAL_SPI_TransmitReceive(&SpiHandle, header_master, header_slave, HEADER_SIZE, TIMEOUT_DURATION);
   
   if (spi_fix_enabled) {
     set_irq_as_input();
@@ -218,23 +229,31 @@ uint8_t BlueNRG_SPI_Write(uint8_t* data1,
       
       /*  Buffer is big enough */
       if (Nb_bytes1 > 0) {
-        if (HAL_SPI_TransmitReceive(&SpiHandle, data1, read_char_buf, Nb_bytes1, TIMEOUT_DURATION) != HAL_OK) {
-          for(;;);
+        HAL_SPI_TransmitReceive(&SpiHandle, data1, read_char_buf, Nb_bytes1, TIMEOUT_DURATION);
+  #ifdef HAVE_BLE_SPI_DEBUG
+        DEBUG_BLE_SPI(Nb_bytes1);
+        while(Nb_bytes1--) {
+          DEBUG_BLE_SPI(*data1++);
         }
+  #endif // HAVE_BLE_SPI_DEBUG
       }
       if (Nb_bytes2 > 0) {
-        if(HAL_SPI_TransmitReceive(&SpiHandle, data2, read_char_buf, Nb_bytes2, TIMEOUT_DURATION) != HAL_OK) {
-          for(;;);
+        HAL_SPI_TransmitReceive(&SpiHandle, data2, read_char_buf, Nb_bytes2, TIMEOUT_DURATION);
+  #ifdef HAVE_BLE_SPI_DEBUG
+        DEBUG_BLE_SPI(Nb_bytes2);
+        while(Nb_bytes2--) {
+          DEBUG_BLE_SPI(*data2++);
         }
+  #endif // HAVE_BLE_SPI_DEBUG
       }
             
     } else {
       /* Buffer is too small */
-      result = -2;
+      result = -4;
     }
   } else {
     /* SPI is not ready */
-    result = -1;
+    result = -5;
   }
   
   /* Release CS line */

@@ -27,7 +27,7 @@
 
 #define HCI_LOG_ON 0
 
-#define HCI_READ_PACKET_NUM_MAX 		 (5)
+//#define HCI_READ_PACKET_NUM_MAX 		 (5)
 
 #define MIN(a,b)            ((a) < (b) )? (a) : (b)
 #define MAX(a,b)            ((a) > (b) )? (a) : (b)
@@ -110,7 +110,6 @@ void HCI_Process(void)
     }
     readPacketListFull = FALSE;
   }
-  
   Enable_SPI_IRQ();    
 }
 
@@ -119,18 +118,18 @@ BOOL HCI_Queue_Empty(void)
   return list_is_empty(&hciReadPktRxQueue);
 }
 
-int HCI_Isr_read_packet(void) {
+void HCI_recv_packet(unsigned char* packet_buffer, unsigned int packet_length) {
   tHciDataPacket * hciReadPacket = NULL;
-  uint8_t data_len = 0;
 
   if (list_is_empty (&hciReadPktPool) == FALSE){
   
     /* enqueueing a packet for read */
     list_remove_head (&hciReadPktPool, (tListNode **)&hciReadPacket);
     
-    data_len = BlueNRG_SPI_Read_All(hciReadPacket->dataBuff,HCI_READ_PACKET_SIZE);
-    if(data_len > 0){                    
-      hciReadPacket->data_len = data_len;
+    Osal_MemCpy(hciReadPacket->dataBuff, packet_buffer, MIN(HCI_READ_PACKET_SIZE, packet_length));
+
+    if(packet_length > 0){                    
+      hciReadPacket->data_len = packet_length;
       if(HCI_verify(hciReadPacket) == 0)
         list_insert_tail(&hciReadPktRxQueue, (tListNode *)hciReadPacket);
       else
@@ -145,25 +144,10 @@ int HCI_Isr_read_packet(void) {
   else{
     // HCI Read Packet Pool is empty, wait for a free packet.
     readPacketListFull = TRUE;
-    Clear_SPI_EXTI_Flag();
     return;
   }
-
-  // trigger hci process
-  SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
-
-  Clear_SPI_EXTI_Flag();
-
-  return data_len;
 }
 
-void HCI_Isr(void)
-{  
-  Clear_SPI_EXTI_Flag();
-  while(Is_SPI_EXTI()){
-    HCI_Isr_read_packet();
-  }
-}
 
 void hci_write(const void* data1, const void* data2, uint8_t n_bytes1, uint8_t n_bytes2){
 #if  HCI_LOG_ON
